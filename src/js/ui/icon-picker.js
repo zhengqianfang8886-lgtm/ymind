@@ -1,5 +1,7 @@
 import { ICON_CATEGORIES } from '../data/icons.js';
-import { state, saveSnapshot, findNode, getPrimarySelectedNode } from '../core/state.js';
+import { state, findNode, getPrimarySelectedNode, getActiveDocumentContext } from '../core/state.js';
+import { executeCommand, executeCompoundCommand, COMMANDS } from '../core/history.js';
+import { bus, EVENTS } from '../core/event-bus.js';
 
 let activeCategory = "frequent";
 
@@ -52,15 +54,30 @@ export function initIconPicker(renderApp) {
   }
 
   function applyIconToSelection(iconChar) {
-    if (!state.selectedIds || state.selectedIds.size === 0) return;
-    state.selectedIds.forEach(id => {
-      const node = findNode(id, state.mindData);
-      if (node) node.icon = iconChar;
+    const docCtx = getActiveDocumentContext();
+    if (!docCtx || !docCtx.selectedIds || docCtx.selectedIds.size === 0) return;
+    const subCommands = [];
+    docCtx.selectedIds.forEach(id => {
+      const node = findNode(id, docCtx.mindData);
+      if (node) {
+        subCommands.push({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: node.id,
+          oldAttrs: { icon: node.icon || null },
+          newAttrs: { icon: iconChar }
+        });
+      }
     });
-    state.isLayoutDirty = true;
-    saveSnapshot();
-    renderApp();
+
+    if (subCommands.length === 1) {
+      docCtx.executeCommand(subCommands[0], true);
+    } else if (subCommands.length > 1) {
+      docCtx.executeCompoundCommand(subCommands, true);
+    }
+
+    docCtx.isLayoutDirty = true;
     syncInspectorIcons();
+    bus.emit(EVENTS.RENDER_APP);
   }
 
   btnClear?.addEventListener("click", (e) => {

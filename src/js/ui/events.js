@@ -1,6 +1,6 @@
 import { saveSessionImmediate } from "../storage/session.js";
-import { state, getActiveTab, createNewTab, getPrimarySelectedNode, findNode } from "../core/state.js";
-import { saveSnapshot } from "../core/history.js";
+import { state, getActiveTab, createNewTab, getPrimarySelectedNode, findNode, findParent, getActiveDocumentContext } from "../core/state.js";
+import { saveSnapshot, executeCommand, COMMANDS } from "../core/history.js";
 import { isNodeVisibleInTree } from "../core/tree-utils.js";
 import { camera, requestTransformUpdate, startInertiaMomentum, stopAllCameraAnimations, locateFocusedNode, smartAdaptiveCenter, zoomViewportByFactor, resetZoom100 } from "../core/camera.js";
 import { syncInspectorUi, applyCanvasThemeToBody } from "./inspector.js";
@@ -10,26 +10,27 @@ import { serializeTabToPackage, deserializePackage, parseTextToTree, extractReal
 import { recordRecentDoc } from "./home.js";
 import { showLockScreen, updateSecurityDockStatus } from "./vault.js";
 import { startEditNode, setDropIndicator } from "../render/render.js";
-import { addChildNode, addSiblingNode, deleteSelectedNodes, markDirtyAndRefresh } from "../interaction/node-actions.js";
+import { isClickOnNodeLink, navigateDeepLink, promptEditNodeLink } from "./deep-link.js";
+import { isClickOnCheckbox, toggleTaskDone, toggleNodeTodo } from "./todo.js";
+import { isClickOnDueDatePill, promptEditDueDate } from "./due-date.js";
+import { addChildNode, addSiblingNode, deleteSelectedNodes } from "../interaction/node-actions.js";
 import { bindGlobalShortcuts } from "../interaction/shortcuts.js";
+import { canvasMachine, CanvasState } from "../interaction/canvas-machine.js";
 import { bus, EVENTS } from "../core/event-bus.js";
-import { findParent, getAncestors } from "../core/state.js";
 
-let peekTargetNode = null;
-let gDragNode = null;
-let gIsDragging = false;
-let gDragStart = { x: 0, y: 0 };
+export { canvasMachine };
 let gDropTarget = null;
 
 // 🌟 强大的全树拓扑拾取算法：智能判定“跨分支挂载改父级”与“同级兄弟插入排序”
 function calculateFullTreeDrop(worldX, worldY, dragNode) {
-  if (!dragNode || dragNode.id === state.focusedRootId) return null;
-  const curTab = getActiveTab();
+  const docCtx = getActiveDocumentContext();
+  if (!dragNode || !docCtx || dragNode.id === docCtx.focusedRootId) return null;
+  const curTab = docCtx.tab;
   if (!curTab?.spatialIndex) return null;
 
   // 1. 优先判定：是否悬停在某个目标节点本体上方 -> 触发【跨分支挂载为子节点 (Reparent)】
   const hoverNode = curTab.spatialIndex.pickNode(worldX, worldY, 10);
-  const currentParent = findParent(dragNode.id, state.mindData);
+  const currentParent = findParent(dragNode.id, docCtx.mindData);
 
   // 正确防环校验：目标节点不能是自身、不能是自身后代(防死循环)、且不能是当前直接父节点(已经是其子节点)
   const isDescendant = hoverNode ? Boolean(findNode(hoverNode.id, dragNode)) : false;
@@ -50,11 +51,11 @@ function calculateFullTreeDrop(worldX, worldY, dragNode) {
   }
 
   // 2. 次级判定：是否处于当前父级下的同级兄弟槽位 -> 触发【同级插入排序】
-  const parent = findParent(dragNode.id, state.mindData);
+  const parent = findParent(dragNode.id, docCtx.mindData);
   if (!parent || !parent.children || parent.children.length <= 1) return null;
 
   const siblings = parent.children;
-  const structure = state.layoutStructure || "mindmap";
+  const structure = docCtx.layoutStructure || "mindmap";
 
   if (structure === "org-down") {
     let closest = -1, minD = Infinity;
@@ -85,7 +86,7 @@ function calculateFullTreeDrop(worldX, worldY, dragNode) {
     }
   } else {
     const sameSide = siblings.filter(s => {
-      if (structure === "mindmap" && parent.id === state.focusedRootId) {
+      if (structure === "mindmap" && parent.id === docCtx.focusedRootId) {
         return s.branchDirection === dragNode.branchDirection;
       }
       return true;
@@ -142,7 +143,8 @@ function computeDirectMarquee(minX, maxX, minY, maxY) {
   const worldL = (minX - x) / s, worldR = (maxX - x) / s;
   const worldT = (minY - y) / s, worldB = (maxY - y) / s;
   const hitSet = new Set();
-  const root = findNode(state.focusedRootId, state.mindData) || state.mindData;
+  const docCtx = getActiveDocumentContext();
+  const root = docCtx ? (findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData) : null;
   if (!root) return hitSet;
 
   function traverse(n) {
@@ -168,23 +170,48 @@ export function updateSelectionOnly() {
 export async function handleLoadedFileContent(contentData, filePath, renderApp) {
   closeNotesDrawer();
   let parsed = null;
+  const isZipOrXmind = Boolean((filePath && /\.(xmind|zip)$/i.test(filePath)) || (contentData instanceof ArrayBuffer));
+
   if (contentData instanceof ArrayBuffer) {
     try {
       parsed = await extractRealXMindZip(contentData);
-    } catch {
-      contentData = new TextDecoder().decode(contentData);
+    } catch (err) {
+      console.warn("[FileLoad] Failed to extract XMind zip:", err);
+      const { appAlert } = await import("./dialog.js");
+      await appAlert({
+        title: "无法解析思维导图文件",
+        message: "该文件不是合法的 XMind 压缩结构，或属于不支持的旧版 XMind 8 (XML) 架构，未能找到有效 content.json 数据。",
+        type: "warning"
+      });
+      return;
     }
-  }
-  if (typeof contentData === "string") {
-    try {
-      parsed = JSON.parse(contentData);
-    } catch {
+  } else if (typeof contentData === "string") {
+    const trimmed = contentData.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        parsed = JSON.parse(contentData);
+      } catch (err) {
+        console.warn("[FileLoad] JSON parse error:", err);
+      }
+    }
+    if (!parsed) {
+      if (isZipOrXmind) {
+        const { appAlert } = await import("./dialog.js");
+        await appAlert({
+          title: "无法打开文件",
+          message: "该文件数据包已损坏或非标准 JSON 思维导图结构。",
+          type: "warning"
+        });
+        return;
+      }
       parsed = {
         title: filePath ? filePath.split(/[\\/]/).pop().replace(/\.[^/.]+$/, "") : "本地导图",
         mindData: parseTextToTree(contentData)
       };
     }
   }
+
+  if (!parsed) return;
 
   const cur = getActiveTab();
   const shouldReuse = cur && !cur.filePath && !cur.isDirty && (!cur.mindData?.children || cur.mindData.children.length === 0);
@@ -230,7 +257,7 @@ export async function handleLoadedFileContent(contentData, filePath, renderApp) 
     boxStyle: tab.boxStyle,
     canvasBgColor: tab.canvasBgColor,
     canvasBgPattern: tab.canvasBgPattern
-  }, tab.isEncrypted, tab.password, tab.passwordHint, tab.encryptedVault, tab.camera);
+  }, tab.isEncrypted, tab.camera);
 
   bus.emit(EVENTS.SHOW_WORKSPACE);
 }
@@ -296,32 +323,76 @@ export async function performSave(customTab = null) {
 function initNodeAttributeEvents(renderApp) {
   const btnAttr = document.getElementById("btn-node-attributes");
   const wrapper = btnAttr?.closest(".dropdown-wrapper");
+  const menuAttr = document.getElementById("menu-node-attributes");
+  if (!btnAttr || !menuAttr) return;
 
-  btnAttr?.addEventListener("click", (e) => {
+  // 🌟 核心破局点：提升至 document.body 顶层，彻底突破毛玻璃坐标系包裹与 overflow 裁切
+  if (menuAttr.parentElement !== document.body) {
+    document.body.appendChild(menuAttr);
+  }
+  menuAttr.classList.add("hidden");
+
+  btnAttr.addEventListener("click", (e) => {
     e.stopPropagation();
-    wrapper?.classList.toggle("active");
+    const isHidden = menuAttr.classList.contains("hidden");
+
+    if (isHidden) {
+      const rect = btnAttr.getBoundingClientRect();
+      const menuWidth = 260;
+      let leftPos = Math.round(rect.left + rect.width / 2 - menuWidth / 2);
+      if (leftPos < 10) leftPos = 10;
+      if (leftPos + menuWidth > window.innerWidth - 10) {
+        leftPos = window.innerWidth - menuWidth - 10;
+      }
+
+      menuAttr.style.position = "fixed";
+      menuAttr.style.top = `${Math.round(rect.bottom + 8)}px`;
+      menuAttr.style.left = `${leftPos}px`;
+      menuAttr.style.right = "auto";
+      menuAttr.style.zIndex = "99999";
+      menuAttr.classList.remove("hidden");
+      btnAttr.classList.add("active");
+    } else {
+      menuAttr.classList.add("hidden");
+      btnAttr.classList.remove("active");
+    }
   });
 
   window.addEventListener("click", (e) => {
-    if (wrapper && !wrapper.contains(e.target)) wrapper.classList.remove("active");
+    if (!menuAttr.classList.contains("hidden")) {
+      if (!menuAttr.contains(e.target) && !btnAttr.contains(e.target)) {
+        menuAttr.classList.add("hidden");
+        btnAttr.classList.remove("active");
+      }
+    }
   });
 
+  // 1. 快捷图标点选响应
   document.querySelectorAll("[data-quick-icon]").forEach(chip => {
     chip.addEventListener("click", (e) => {
       e.stopPropagation();
-      wrapper?.classList.remove("active");
+      menuAttr.classList.add("hidden"); btnAttr.classList.remove("active");
       const icon = chip.dataset.quickIcon;
-      const target = getPrimarySelectedNode();
-      if (!target) return;
-      target.icon = (target.icon === icon) ? null : icon;
-      markDirtyAndRefresh(renderApp);
-      syncNotesDrawerWithActiveNode();
+      const docCtx = getActiveDocumentContext();
+      const target = docCtx?.primarySelectedNode || getPrimarySelectedNode(docCtx);
+      if (!target || !docCtx) return;
+
+      docCtx.executeCommand({
+        type: COMMANDS.UPDATE_ATTRS,
+        nodeId: target.id,
+        oldAttrs: { icon: target.icon || null },
+        newAttrs: { icon: (target.icon === icon) ? null : icon }
+      });
+
+      docCtx.markLayoutDirty(target.id);
+      bus.emit(EVENTS.RENDER_APP); // 🌟 修复：补齐重绘通知
+      syncNotesDrawerWithActiveNode(docCtx);
     });
   });
 
   document.getElementById("btn-open-full-icons")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    wrapper?.classList.remove("active");
+    menuAttr.classList.add("hidden"); btnAttr.classList.remove("active");
     const fs = document.getElementById("format-sidebar");
     const layout = document.querySelector(".workspace-body-layout");
     fs?.classList.remove("collapsed");
@@ -334,27 +405,71 @@ function initNodeAttributeEvents(renderApp) {
     }
   });
 
+  // 2. 优先级点选响应
   document.querySelectorAll("#menu-priority .popover-item").forEach(item => {
     item.addEventListener("click", (e) => {
       e.stopPropagation();
-      wrapper?.classList.remove("active");
+      menuAttr.classList.add("hidden"); btnAttr.classList.remove("active");
       const p = item.dataset.priority;
-      const target = getPrimarySelectedNode();
-      if (!target) return;
-      target.priority = (p === "none") ? null : p;
-      markDirtyAndRefresh(renderApp);
+      const pVal = (p === "none") ? null : p;
+      const docCtx = getActiveDocumentContext();
+      const targetIds = (docCtx?.selectedIds && docCtx.selectedIds.size > 0)
+        ? Array.from(docCtx.selectedIds)
+        : [docCtx?.primarySelectedNode?.id].filter(Boolean);
+      if (targetIds.length === 0 || !docCtx) return;
+
+      const subCommands = [];
+      targetIds.forEach(id => {
+        const node = findNode(id, docCtx.mindData);
+        if (node) {
+          subCommands.push({
+            type: COMMANDS.UPDATE_ATTRS,
+            nodeId: node.id,
+            oldAttrs: { priority: node.priority || null },
+            newAttrs: { priority: pVal }
+          });
+          docCtx.markLayoutDirty(node.id);
+        }
+      });
+      if (subCommands.length === 1) docCtx.executeCommand(subCommands[0], true);
+      else if (subCommands.length > 1) docCtx.executeCompoundCommand(subCommands, true);
+
+      syncInspectorUi(docCtx);
+      bus.emit(EVENTS.RENDER_APP); // 🌟 修复：补齐重绘通知
     });
   });
 
+  // 3. 进度点选响应
   document.querySelectorAll("#menu-progress .popover-item").forEach(item => {
     item.addEventListener("click", (e) => {
       e.stopPropagation();
-      wrapper?.classList.remove("active");
+      menuAttr.classList.add("hidden"); btnAttr.classList.remove("active");
       const prg = item.dataset.progress;
-      const target = getPrimarySelectedNode();
-      if (!target) return;
-      target.progress = (prg === "none") ? null : prg;
-      markDirtyAndRefresh(renderApp);
+      const prgVal = (prg === "none") ? null : prg;
+      const docCtx = getActiveDocumentContext();
+      const targetIds = (docCtx?.selectedIds && docCtx.selectedIds.size > 0)
+        ? Array.from(docCtx.selectedIds)
+        : [docCtx?.primarySelectedNode?.id].filter(Boolean);
+      if (targetIds.length === 0 || !docCtx) return;
+
+      const subCommands = [];
+      targetIds.forEach(id => {
+        const node = findNode(id, docCtx.mindData);
+        if (node) {
+          subCommands.push({
+            type: COMMANDS.UPDATE_ATTRS,
+            nodeId: node.id,
+            oldAttrs: { progress: node.progress || null },
+            newAttrs: { progress: prgVal }
+          });
+          docCtx.markLayoutDirty(node.id);
+        }
+      });
+      if (subCommands.length === 1) docCtx.executeCommand(subCommands[0], true);
+      else if (subCommands.length > 1) docCtx.executeCompoundCommand(subCommands, true);
+
+      syncInspectorUi(docCtx);
+      bus.emit(EVENTS.RENDER_APP); // 🌟 修复：补齐重绘通知
     });
   });
 
@@ -366,20 +481,41 @@ function initNodeAttributeEvents(renderApp) {
     if (!tagList) return;
 
     const tags = Array.isArray(node.tags) ? node.tags : [];
-    tagList.innerHTML = tags.map(t => `
-      <span class="apple-modal-tag">
-        <span>${t}</span>
-        <span class="tag-del-btn" data-tag="${t}" style="cursor:pointer;font-weight:700;">×</span>
-      </span>
-    `).join("");
+    tagList.textContent = "";
 
-    tagList.querySelectorAll(".tag-del-btn").forEach(btn => {
-      btn.onclick = (e) => {
+    tags.forEach(t => {
+      const tagStr = String(t);
+      const tagSpan = document.createElement("span");
+      tagSpan.className = "apple-modal-tag";
+
+      const textSpan = document.createElement("span");
+      textSpan.textContent = tagStr;
+
+      const delSpan = document.createElement("span");
+      delSpan.className = "tag-del-btn";
+      delSpan.dataset.tag = tagStr;
+      delSpan.style.cursor = "pointer";
+      delSpan.style.fontWeight = "700";
+      delSpan.textContent = "×";
+      delSpan.onclick = (e) => {
         e.stopPropagation();
-        node.tags = (node.tags || []).filter(item => item !== btn.dataset.tag);
+        const oldTags = [...(node.tags || [])];
+        const newTags = oldTags.filter(item => item !== tagStr);
+        const docCtx = getActiveDocumentContext();
+        docCtx?.executeCommand({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: node.id,
+          oldAttrs: { tags: oldTags },
+          newAttrs: { tags: newTags }
+        });
+        docCtx?.markLayoutDirty(node.id);
+        bus.emit(EVENTS.RENDER_APP);
         renderTagModalList(node);
-        markDirtyAndRefresh(renderApp);
       };
+
+      tagSpan.appendChild(textSpan);
+      tagSpan.appendChild(delSpan);
+      tagList.appendChild(tagSpan);
     });
   }
 
@@ -390,10 +526,18 @@ function initNodeAttributeEvents(renderApp) {
     const val = tagInput.value.trim();
     if (!val) return;
     if (!Array.isArray(node.tags)) node.tags = [];
-    if (!node.tags.includes(val)) {
-      node.tags.push(val);
+    const oldTags = [...(node.tags || [])];
+    if (!oldTags.includes(val)) {
+      const docCtx = getActiveDocumentContext();
+      docCtx?.executeCommand({
+        type: COMMANDS.UPDATE_ATTRS,
+        nodeId: node.id,
+        oldAttrs: { tags: oldTags },
+        newAttrs: { tags: [...oldTags, val] }
+      });
+      docCtx?.markLayoutDirty(node.id);
+      bus.emit(EVENTS.RENDER_APP);
       renderTagModalList(node);
-      markDirtyAndRefresh(renderApp);
     }
     tagInput.value = "";
     tagInput.focus();
@@ -401,7 +545,7 @@ function initNodeAttributeEvents(renderApp) {
 
   document.getElementById("btn-open-tag-modal")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    wrapper?.classList.remove("active");
+    menuAttr.classList.add("hidden"); btnAttr.classList.remove("active");
     const node = getPrimarySelectedNode();
     if (!node || !tagModal) return;
 
@@ -427,14 +571,56 @@ function initNodeAttributeEvents(renderApp) {
 export function initEventListeners(renderApp) {
   const vp = document.getElementById("viewport");
   const marquee = document.getElementById("marquee-box");
-  let isPanning = false, panStart = { x: 0, y: 0 };
-  let lastMoveTime = 0, lastClientX = 0, lastClientY = 0;
-  let panVel = { x: 0, y: 0 };
-  let isMarquee = false, marqueeStart = { x: 0, y: 0 };
   let lastClickTime = 0, lastClickNodeId = null;
 
-  vp?.addEventListener("mousedown", (e) => {
+  // 状态机失焦自愈安全阀：窗口失去焦点自动安全重置
+  window.addEventListener("blur", () => {
+    if (!canvasMachine.is(CanvasState.IDLE)) {
+      setDropIndicator(null);
+      if (marquee) marquee.classList.add("hidden");
+      canvasMachine.reset();
+      bus.emit(EVENTS.RENDER_CANVAS_ONLY);
+    }
+  });
+
+  vp?.addEventListener("dblclick", (e) => {
     if (e.target.closest(".canvas-floating-controls, .minimap-widget, .inline-editor")) return;
+    const rect = vp.getBoundingClientRect();
+    const s = camera.transform.scale;
+    const worldX = (e.clientX - rect.left - camera.transform.x) / s;
+    const worldY = (e.clientY - rect.top - camera.transform.y) / s;
+
+    const docCtx = getActiveDocumentContext();
+    const curTab = docCtx?.tab || getActiveTab();
+    const curRoot = docCtx ? (findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData) : null;
+    const isVisible = (id) => isNodeVisibleInTree(id, curRoot);
+
+    const node = curTab?.spatialIndex?.pickNode(worldX, worldY, 8, isVisible);
+    if (node) {
+      e.preventDefault();
+      e.stopPropagation();
+      stopAllCameraAnimations();
+      canvasMachine.transition(CanvasState.EDITING, { node });
+      startEditNode(node, state, () => {
+        canvasMachine.transition(CanvasState.IDLE);
+        renderApp();
+      }, false, docCtx);
+    } else {
+      // 🌟 双击空白背景：智能全景重置回正 (Fit to Screen)
+      e.preventDefault();
+      stopAllCameraAnimations();
+      smartAdaptiveCenter(null, true, docCtx);
+      showToast("🎯 视野已平滑回正");
+    }
+  });
+
+  vp?.addEventListener("mousedown", (e) => {
+    // 🌟 核心拦截：非鼠标左键（如右键菜单 e.button === 2）坚决禁止启动拖拽、框选与焦点位移
+    if (e.button !== 0) return;
+    if (e.target.closest(".canvas-floating-controls, .minimap-widget, .inline-editor")) return;
+    if (state.editingNodeId) {
+      document.getElementById("inline-editor")?.blur();
+    }
     const rect = vp.getBoundingClientRect();
     const clickScreenX = e.clientX - rect.left;
     const clickScreenY = e.clientY - rect.top;
@@ -442,19 +628,62 @@ export function initEventListeners(renderApp) {
     const worldX = (clickScreenX - camera.transform.x) / s;
     const worldY = (clickScreenY - camera.transform.y) / s;
 
-    const curTab = getActiveTab();
-    const curRoot = findNode(state.focusedRootId, state.mindData) || state.mindData;
+    const docCtx = getActiveDocumentContext();
+    const curTab = docCtx?.tab || getActiveTab();
+    const curRoot = docCtx ? (findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData) : null;
     const isVisible = (id) => isNodeVisibleInTree(id, curRoot);
 
-    let badgeNode = curTab?.spatialIndex?.pickCollapseBadge(worldX, worldY, state.focusedRootId, isVisible);
+    const badgeHitRadius = Math.max(13, 14 / s);
+    let badgeNode = curTab?.spatialIndex?.pickCollapseBadge(worldX, worldY, docCtx?.focusedRootId, isVisible, badgeHitRadius);
     
     if (badgeNode) {
       e.stopPropagation();
-      badgeNode.collapsed = !badgeNode.collapsed;
-      state.isLayoutDirty = true;
-      saveSnapshot();
-      curTab?.spatialIndex?.clear();
-      bus.emit(EVENTS.RENDER_APP);
+      e.preventDefault();
+      if (docCtx) {
+        // 🌟 需求 1：收放节点时，焦点立即无缝切换到该节点上
+        docCtx.selectNode(badgeNode.id);
+        syncInspectorUi(docCtx);
+        syncNotesDrawerWithActiveNode(docCtx);
+        const isCascade = Boolean(e.altKey);
+        const targetCollapsed = !badgeNode.collapsed;
+
+        if (isCascade) {
+          // 🌟 方案 A：⌥ Option / Alt + 点击徽章触发深度级联穿透收放 (Cascade Toggle)
+          const subCommands = [];
+          function collectCascadeNodes(n) {
+            if (n.children && n.children.length > 0) {
+              if (Boolean(n.collapsed) !== targetCollapsed) {
+                subCommands.push({
+                  type: COMMANDS.UPDATE_ATTRS,
+                  nodeId: n.id,
+                  oldAttrs: { collapsed: Boolean(n.collapsed) },
+                  newAttrs: { collapsed: targetCollapsed }
+                });
+              }
+              for (let i = 0; i < n.children.length; i++) {
+                collectCascadeNodes(n.children[i]);
+              }
+            }
+          }
+          collectCascadeNodes(badgeNode);
+
+          if (subCommands.length === 1) {
+            docCtx.executeCommand(subCommands[0]);
+          } else if (subCommands.length > 1) {
+            docCtx.executeCompoundCommand(subCommands);
+          }
+          showToast(targetCollapsed ? "⏪ 已级联折叠所有子分支" : "⏩ 已级联展开所有子分支");
+        } else {
+          docCtx.executeCommand({
+            type: COMMANDS.UPDATE_ATTRS,
+            nodeId: badgeNode.id,
+            oldAttrs: { collapsed: Boolean(badgeNode.collapsed) },
+            newAttrs: { collapsed: targetCollapsed }
+          });
+        }
+        docCtx.markLayoutDirty(badgeNode.id);
+        bus.emit(EVENTS.RENDER_APP); // 🌟 0 延迟立即触发画布排版与重绘
+      }
       return;
     }
 
@@ -463,49 +692,79 @@ export function initEventListeners(renderApp) {
 
     if (node) {
       e.stopPropagation();
-      if (state.isRecallMode && node.id !== state.focusedRootId) {
-        peekTargetNode = node;
+      // 🌟 单击截止日期胶囊直接呼出日期修改弹窗
+      if (isClickOnDueDatePill(node, worldX, worldY)) {
+        e.preventDefault();
+        promptEditDueDate(node);
+        return;
+      }
+
+      // 🌟 单击待办复选框直接切换完成状态并联动进度
+      if (isClickOnCheckbox(node, worldX, worldY)) {
+        e.preventDefault();
+        toggleTaskDone(node);
+        return;
+      }
+
+      // 🌟 单击 🔗 胶囊图标直接穿透跳转
+      if (isClickOnNodeLink(node, worldX, worldY)) {
+        e.preventDefault();
+        navigateDeepLink(node.link);
+        return;
+      }
+      if (docCtx?.isRecallMode && node.id !== docCtx?.focusedRootId) {
         node._unmasked = true;
+        canvasMachine.transition(CanvasState.PEEK_RECALL, { node });
         bus.emit(EVENTS.RENDER_APP);
         return;
       }
       const now = Date.now();
-      if (now - lastClickTime < 350 && lastClickNodeId === node.id) {
+      if (now - lastClickTime < 500 && lastClickNodeId === node.id) {
         lastClickTime = 0; lastClickNodeId = null;
-        startEditNode(node, state, renderApp, false);
+        e.preventDefault();
+        canvasMachine.transition(CanvasState.EDITING, { node });
+        startEditNode(node, state, () => {
+          canvasMachine.transition(CanvasState.IDLE);
+          renderApp();
+        }, false, docCtx);
         return;
       }
       lastClickTime = now;
       lastClickNodeId = node.id;
 
-      if (node.id !== state.focusedRootId && !e.shiftKey) {
-        gDragNode = node;
-        gDragStart = { x: e.clientX, y: e.clientY };
-        gIsDragging = false;
-      }
+      const prevSelectedId = docCtx?.primarySelectedNode?.id || null;
+      const isDraggable = node.id !== docCtx?.focusedRootId && !e.shiftKey;
+      canvasMachine.transition(CanvasState.DRAGGING_NODE, {
+        node,
+        isDraggable,
+        startX: e.clientX,
+        startY: e.clientY,
+        isMoved: false,
+        prevSelectedId
+      });
 
-      if (e.shiftKey) {
-        const nextSet = new Set(state.selectedIds);
-        if (nextSet.has(node.id)) nextSet.delete(node.id);
-        else nextSet.add(node.id);
-        state.selectedIds = nextSet;
-      } else {
-        state.selectedIds = new Set([node.id]);
+      if (docCtx) {
+        if (e.shiftKey) {
+          docCtx.selectNode(node.id, true);
+        } else {
+          docCtx.selectNode(node.id, false);
+        }
       }
 
       bus.emit(EVENTS.RENDER_APP);
-      syncInspectorUi();
-      locateFocusedNode(node.id, true);
-      syncNotesDrawerWithActiveNode();
+      syncInspectorUi(docCtx);
+      syncNotesDrawerWithActiveNode(docCtx);
       return;
     }
 
     if (e.shiftKey) {
-      isMarquee = true;
-      marqueeStart = { x: clickScreenX, y: clickScreenY };
+      canvasMachine.transition(CanvasState.MARQUEE, {
+        startX: clickScreenX,
+        startY: clickScreenY
+      });
       if (marquee) {
-        marquee.style.left = marqueeStart.x + "px";
-        marquee.style.top = marqueeStart.y + "px";
+        marquee.style.left = clickScreenX + "px";
+        marquee.style.top = clickScreenY + "px";
         marquee.style.width = "0px";
         marquee.style.height = "0px";
         marquee.classList.remove("hidden");
@@ -514,13 +773,14 @@ export function initEventListeners(renderApp) {
     }
 
     stopAllCameraAnimations();
-    isPanning = true;
     state.isInteracting = true;
-    panVel = { x: 0, y: 0 };
-    lastClientX = e.clientX;
-    lastClientY = e.clientY;
-    lastMoveTime = performance.now();
-    panStart = { x: e.clientX - camera.transform.x, y: e.clientY - camera.transform.y };
+    canvasMachine.transition(CanvasState.PANNING, {
+      panStart: { x: e.clientX - camera.transform.x, y: e.clientY - camera.transform.y },
+      lastX: e.clientX,
+      lastY: e.clientY,
+      lastTime: performance.now(),
+      vel: { x: 0, y: 0 }
+    });
   });
 
   window.addEventListener("mousemove", (e) => {
@@ -530,125 +790,167 @@ export function initEventListeners(renderApp) {
     const wx = (e.clientX - rect.left - camera.transform.x) / s;
     const wy = (e.clientY - rect.top - camera.transform.y) / s;
 
-    // 🌟 实时计算拖拽挂载与重排
-    if (gDragNode) {
-      if (!gIsDragging && Math.hypot(e.clientX - gDragStart.x, e.clientY - gDragStart.y) > 4) {
-        gIsDragging = true;
-        isPanning = false;
-        vp.style.cursor = "grabbing";
-      }
-      if (gIsDragging) {
-        gDropTarget = calculateFullTreeDrop(wx, wy, gDragNode);
-        setDropIndicator(gDropTarget ? gDropTarget.indicator : null);
-        bus.emit(EVENTS.RENDER_CANVAS_ONLY);
-        return;
-      }
-    }
-
-    const curTab = getActiveTab();
-    const curRoot = findNode(state.focusedRootId, state.mindData) || state.mindData;
-    const isVisible = (id) => isNodeVisibleInTree(id, curRoot);
-
-    if (!isPanning && !isMarquee) {
-      let badgeHit = curTab?.spatialIndex?.pickCollapseBadge(wx, wy, state.focusedRootId, isVisible);
-      
-      let nodeHit = badgeHit || curTab?.spatialIndex?.pickNode(wx, wy, 8, isVisible);
-      
-
-      if (e.shiftKey) {
-        vp.style.cursor = nodeHit ? "pointer" : "crosshair";
-      } else {
-        vp.style.cursor = badgeHit ? "pointer" : (nodeHit ? "pointer" : "grab");
-      }
-    }
-
-    if (isPanning) {
-      vp.style.cursor = "grabbing";
-      const now = performance.now();
-      const dt = now - lastMoveTime;
-      if (dt > 10) {
-        panVel = { x: (e.clientX - lastClientX) / dt, y: (e.clientY - lastClientY) / dt };
-        lastClientX = e.clientX;
-        lastClientY = e.clientY;
-        lastMoveTime = now;
-      }
-      camera.transform.x = e.clientX - panStart.x;
-      camera.transform.y = e.clientY - panStart.y;
-      requestTransformUpdate();
-    } else if (isMarquee && marquee) {
-      const curX = e.clientX - rect.left, curY = e.clientY - rect.top;
-      const minX = Math.min(curX, marqueeStart.x), maxX = Math.max(curX, marqueeStart.x);
-      const minY = Math.min(curY, marqueeStart.y), maxY = Math.max(curY, marqueeStart.y);
-      marquee.style.left = minX + "px";
-      marquee.style.top = minY + "px";
-      marquee.style.width = Math.max(1, maxX - minX) + "px";
-      marquee.style.height = Math.max(1, maxY - minY) + "px";
-
-      const hitIds = computeDirectMarquee(minX, maxX, minY, maxY);
-      const isSame = hitIds.size === state.selectedIds.size && [...hitIds].every(id => state.selectedIds.has(id));
-      if (!isSame) {
-        state.selectedIds = hitIds;
-        bus.emit(EVENTS.RENDER_APP);
-        syncNotesDrawerWithActiveNode();
-      }
-    }
-  });
-
-  window.addEventListener("mouseup", () => {
-    // 🌟 提交跨分支改挂父级或同级排序结果
-    if (gIsDragging && gDropTarget && gDragNode) {
-      const oldParent = findParent(gDragNode.id, state.mindData);
-      if (oldParent) {
-        if (gDropTarget.type === "reparent") {
-          // 从旧父级中移除，挂入新父级子列表
-          oldParent.children = oldParent.children.filter(c => c.id !== gDragNode.id);
-          const newParent = gDropTarget.targetParent;
-          if (!newParent.children) newParent.children = [];
-          newParent.children.push(gDragNode);
-          newParent.collapsed = false;
-          markDirtyAndRefresh(renderApp);
-          showToast(`🔀 已成功移入「${newParent.text}」下`);
-        } else if (gDropTarget.type === "reorder") {
-          const { parent, insertIndex } = gDropTarget;
-          const oldIdx = parent.children.findIndex(c => c.id === gDragNode.id);
-          if (oldIdx !== -1) {
-            parent.children.splice(oldIdx, 1);
-            const finalIdx = (oldIdx < insertIndex) ? (insertIndex - 1) : insertIndex;
-            parent.children.splice(finalIdx, 0, gDragNode);
-            markDirtyAndRefresh(renderApp);
-            showToast("↕️ 节点顺序已更新");
-          }
+    // 1. DRAGGING_NODE 状态响应
+    if (canvasMachine.is(CanvasState.DRAGGING_NODE)) {
+      const data = canvasMachine.payload;
+      if (data && data.isDraggable) {
+        if (!data.isMoved && Math.hypot(e.clientX - data.startX, e.clientY - data.startY) > 4) {
+          data.isMoved = true;
+          vp.style.cursor = "grabbing";
+        }
+        if (data.isMoved) {
+          gDropTarget = calculateFullTreeDrop(wx, wy, data.node);
+          setDropIndicator(gDropTarget ? gDropTarget.indicator : null);
+          return;
         }
       }
     }
 
-    gDragNode = null;
-    gIsDragging = false;
-    gDropTarget = null;
-    setDropIndicator(null);
-    bus.emit(EVENTS.RENDER_CANVAS_ONLY);
-
-    if (state.isRecallMode && peekTargetNode) {
-      peekTargetNode._unmasked = false;
-      peekTargetNode = null;
-      bus.emit(EVENTS.RENDER_APP);
-    }
-
-    if (isPanning) {
-      const timeSinceLastMove = performance.now() - lastMoveTime;
-      if (timeSinceLastMove < 45 && (Math.abs(panVel.x) > 0.12 || Math.abs(panVel.y) > 0.12)) {
-        startInertiaMomentum(panVel.x * 1.5, panVel.y * 1.5);
-      } else {
-        state.isInteracting = false;
+    // 2. PANNING 状态响应
+    if (canvasMachine.is(CanvasState.PANNING)) {
+      const pData = canvasMachine.payload;
+      if (pData) {
+        vp.style.cursor = "grabbing";
+        const now = performance.now();
+        const dt = now - pData.lastTime;
+        if (dt > 10) {
+          pData.vel = { x: (e.clientX - pData.lastX) / dt, y: (e.clientY - pData.lastY) / dt };
+          pData.lastX = e.clientX;
+          pData.lastY = e.clientY;
+          pData.lastTime = now;
+        }
+        camera.transform.x = e.clientX - pData.panStart.x;
+        camera.transform.y = e.clientY - pData.panStart.y;
         requestTransformUpdate();
+        return;
       }
-      const curTab = getActiveTab();
-      if (curTab) curTab.camera = { ...camera.transform };
     }
-    isPanning = false;
 
-    if (isMarquee) {
-      isMarquee = false;
+    // 3. MARQUEE 状态响应
+    if (canvasMachine.is(CanvasState.MARQUEE) && marquee) {
+      const mData = canvasMachine.payload;
+      if (mData) {
+        const curX = e.clientX - rect.left, curY = e.clientY - rect.top;
+        const minX = Math.min(curX, mData.startX), maxX = Math.max(curX, mData.startX);
+        const minY = Math.min(curY, mData.startY), maxY = Math.max(curY, mData.startY);
+        marquee.style.left = minX + "px";
+        marquee.style.top = minY + "px";
+        marquee.style.width = Math.max(1, maxX - minX) + "px";
+        marquee.style.height = Math.max(1, maxY - minY) + "px";
+
+        const hitIds = computeDirectMarquee(minX, maxX, minY, maxY);
+        const docCtx = getActiveDocumentContext();
+        const curSelected = docCtx?.selectedIds || new Set();
+        const isSame = hitIds.size === curSelected.size && [...hitIds].every(id => curSelected.has(id));
+        if (!isSame && docCtx) {
+          docCtx.selectedIds = hitIds;
+          bus.emit(EVENTS.RENDER_APP);
+          syncNotesDrawerWithActiveNode(docCtx);
+        }
+        return;
+      }
+    }
+
+    // 4. IDLE 状态下悬浮反馈 (rAF 节流调度)
+    if (canvasMachine.is(CanvasState.IDLE)) {
+      if (!window.__HOVER_RAF__) {
+        window.__HOVER_RAF__ = requestAnimationFrame(() => {
+          window.__HOVER_RAF__ = null;
+          const docCtx = getActiveDocumentContext();
+          const curTab = docCtx?.tab || getActiveTab();
+          const curRoot = docCtx ? (findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData) : null;
+          const isVisible = (id) => isNodeVisibleInTree(id, curRoot);
+
+          const badgeHit = curTab?.spatialIndex?.pickCollapseBadge(wx, wy, docCtx?.focusedRootId, isVisible, Math.max(13, 14 / s));
+          const nodeHit = badgeHit || curTab?.spatialIndex?.pickNode(wx, wy, 8, isVisible);
+
+          if (e.shiftKey) {
+            vp.style.cursor = nodeHit ? "pointer" : "crosshair";
+          } else {
+            vp.style.cursor = badgeHit ? "pointer" : (nodeHit ? "pointer" : "grab");
+          }
+        });
+      }
+    }
+  });
+
+  window.addEventListener("mouseup", (e) => {
+    if (e.button !== 0 && !canvasMachine.isInteracting()) return;
+    // 1. DRAGGING_NODE 结算
+    if (canvasMachine.is(CanvasState.DRAGGING_NODE)) {
+      const data = canvasMachine.payload;
+      const docCtx = getActiveDocumentContext();
+      if (data && data.isMoved && gDropTarget && data.node && docCtx) {
+        const oldParent = findParent(data.node.id, docCtx.mindData);
+        if (oldParent) {
+          if (gDropTarget.type === "reparent") {
+            const newParent = gDropTarget.targetParent;
+            const oldIdx = oldParent.children.findIndex(c => c.id === data.node.id);
+            const toIdx = newParent.children ? newParent.children.length : 0;
+            docCtx.executeCommand({
+              type: COMMANDS.MOVE_NODE,
+              nodeId: data.node.id,
+              fromParentId: oldParent.id,
+              toParentId: newParent.id,
+              fromIndex: oldIdx,
+              toIndex: toIdx
+            });
+            newParent.collapsed = false;
+            showToast(`🔀 已成功移入「${newParent.text}」下`);
+          } else if (gDropTarget.type === "reorder") {
+            const { parent, insertIndex } = gDropTarget;
+            const oldIdx = parent.children.findIndex(c => c.id === data.node.id);
+            if (oldIdx !== -1) {
+              const finalIdx = (oldIdx < insertIndex) ? (insertIndex - 1) : insertIndex;
+              docCtx.executeCommand({
+                type: COMMANDS.MOVE_NODE,
+                nodeId: data.node.id,
+                fromParentId: parent.id,
+                toParentId: parent.id,
+                fromIndex: oldIdx,
+                toIndex: finalIdx
+              });
+              showToast("↕️ 节点顺序已更新");
+            }
+          }
+        }
+      }
+      // 🌟 单击切换焦点时，触发相机焦点跟随漫游追踪
+      if (data && !data.isMoved && data.node && docCtx) {
+        locateFocusedNode(data.node.id, true, docCtx, "click");
+      }
+      gDropTarget = null;
+      setDropIndicator(null);
+      bus.emit(EVENTS.RENDER_CANVAS_ONLY);
+    }
+
+    // 2. PEEK_RECALL 结算
+    if (canvasMachine.is(CanvasState.PEEK_RECALL)) {
+      const pNode = canvasMachine.payload?.node;
+      if (pNode) {
+        pNode._unmasked = false;
+        bus.emit(EVENTS.RENDER_APP);
+      }
+    }
+
+    // 3. PANNING 结算与惯性启动
+    if (canvasMachine.is(CanvasState.PANNING)) {
+      const pData = canvasMachine.payload;
+      if (pData) {
+        const timeSinceLastMove = performance.now() - pData.lastTime;
+        if (timeSinceLastMove < 45 && (Math.abs(pData.vel.x) > 0.12 || Math.abs(pData.vel.y) > 0.12)) {
+          startInertiaMomentum(pData.vel.x * 1.5, pData.vel.y * 1.5);
+        } else {
+          state.isInteracting = false;
+          requestTransformUpdate();
+        }
+        const curTab = getActiveTab();
+        if (curTab) curTab.camera = { ...camera.transform };
+      }
+    }
+
+    // 4. MARQUEE 结算
+    if (canvasMachine.is(CanvasState.MARQUEE)) {
       if (marquee) {
         marquee.classList.add("hidden");
         marquee.style.width = "0px";
@@ -657,13 +959,20 @@ export function initEventListeners(renderApp) {
       syncInspectorUi();
       syncNotesDrawerWithActiveNode();
     }
+
+    // 安全收敛至 IDLE 状态
+    canvasMachine.reset();
   });
 
   vp?.addEventListener("wheel", (e) => {
     e.preventDefault();
+    if (state.editingNodeId) {
+      // 🌟 编辑态严格阻断外部画布任何滚动与缩放，杜绝输入法候选框被打断，同时避免图层脱节
+      return;
+    }
     stopAllCameraAnimations();
     state.isInteracting = true;
-    if (state.editingNodeId) document.getElementById("inline-editor")?.blur();
+    canvasMachine.transition(CanvasState.ZOOMING);
 
     const rect = vp.getBoundingClientRect();
     const mx = e.clientX - rect.left;
@@ -679,8 +988,9 @@ export function initEventListeners(renderApp) {
     if (e.deltaMode === 1) rawDelta *= 30;
     else if (e.deltaMode === 2) rawDelta *= 100;
 
+    const zoomSensitivity = e.ctrlKey ? 0.008 : 0.001;
     const clampedDelta = Math.max(-100, Math.min(100, rawDelta));
-    const zoomFactor = Math.exp(-clampedDelta * 0.001);
+    const zoomFactor = Math.exp(-clampedDelta * zoomSensitivity);
     const oldScale = camera.transform.scale;
     let newScale = Math.max(0.15, Math.min(3.0, oldScale * zoomFactor));
 
@@ -697,6 +1007,7 @@ export function initEventListeners(renderApp) {
     clearTimeout(window.__ZOOM_REST_TIMER__);
     window.__ZOOM_REST_TIMER__ = setTimeout(() => {
       state.isInteracting = false;
+      canvasMachine.reset();
       requestTransformUpdate();
     }, 120);
   }, { passive: false });
@@ -743,8 +1054,14 @@ export function initEventListeners(renderApp) {
   document.getElementById("btn-zoom-out")?.addEventListener("click", () => zoomViewportByFactor(1 / 1.15));
   document.getElementById("txt-zoom-level")?.addEventListener("click", () => resetZoom100());
   document.getElementById("btn-smart-center")?.addEventListener("click", () => {
-    smartAdaptiveCenter(null, true);
-    showToast("🎯 画布已自适应居中");
+    const docCtx = getActiveDocumentContext();
+    const primary = docCtx?.primarySelectedNode;
+    if (primary && primary.id !== docCtx.focusedRootId) {
+      smartAdaptiveCenter(primary, true, docCtx);
+    } else {
+      smartAdaptiveCenter(null, true, docCtx);
+    }
+    showToast("🎯 已自适应定位");
   });
 
   async function triggerOpenFile() {
@@ -778,6 +1095,27 @@ export function initEventListeners(renderApp) {
   document.getElementById("btn-save")?.addEventListener("click", () => performSave());
   document.getElementById("btn-open")?.addEventListener("click", triggerOpenFile);
   document.getElementById("nav-btn-open-file")?.addEventListener("click", triggerOpenFile);
+
+  // 🌟 原生桌面体验：支持从系统 Finder/资源管理器直接拖拽文件入窗快速打开
+  window.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  });
+  window.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const isXMind = file.name.endsWith(".xmind");
+    const reader = new FileReader();
+    if (isXMind) {
+      reader.onload = async (ev) => await handleLoadedFileContent(ev.target.result, file.name, renderApp);
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = async (ev) => await handleLoadedFileContent(ev.target.result, file.name, renderApp);
+      reader.readAsText(file);
+    }
+  });
 
   initNodeAttributeEvents(renderApp);
   bindGlobalShortcuts(renderApp, performSave, triggerOpenFile);

@@ -1,4 +1,4 @@
-import { state, getActiveTab, createNewTab, countNodes, getGlobalSettings } from "../core/state.js";
+import { state, getActiveTab, createNewTab, countNodes, getGlobalSettings, sanitizeTreeForHistory } from "../core/state.js";
 import { appAlert, appConfirm, showToast, appPrompt, escapeHtml } from "../ui/dialog.js";
 import { syncInspectorUi } from "../ui/inspector.js";
 import { updateSecurityDockStatus } from "../ui/vault.js";
@@ -17,6 +17,15 @@ export async function createVersionSnapshot(tab = getActiveTab(), trigger = "man
 
   if (!Array.isArray(tab.versions)) tab.versions = [];
 
+  // 🌟 指纹去重防刷屏：自动快照若与上一版本内容完全相同，直接阻断，不挤占真正里程碑
+  const currentContentJson = JSON.stringify(tab.mindData);
+  if (trigger === "auto" && tab.versions.length > 0) {
+    const lastSnap = tab.versions[0];
+    if (lastSnap._contentJson === currentContentJson || JSON.stringify(lastSnap.mindData) === currentContentJson) {
+      return null;
+    }
+  }
+
   const snapName = customName.trim() || (trigger === "manual" ? ("里程碑 " + (tab.versions.length + 1)) : ("自动快照 " + formatDate(Date.now(), true)));
 
   const newSnapshot = {
@@ -32,7 +41,8 @@ export async function createVersionSnapshot(tab = getActiveTab(), trigger = "man
     boxStyle: tab.boxStyle || "squircle",
     canvasBgColor: tab.canvasBgColor || "studio-white",
     canvasBgPattern: tab.canvasBgPattern || "dots",
-    mindData: deepClone(tab.mindData)
+    mindData: deepClone(tab.mindData),
+    _contentJson: currentContentJson
   };
 
   tab.versions.unshift(newSnapshot);
@@ -71,8 +81,9 @@ export function restoreSnapshot(snapId, mode = "new_tab", renderCallback) {
   targetTab.canvasBgPattern = snap.canvasBgPattern || "dots";
   targetTab.selectedIds = new Set([targetTab.mindData.id || "root"]);
   targetTab.focusedRootId = targetTab.mindData.id || "root";
-  targetTab.history = [deepClone(targetTab.mindData)];
+  targetTab.historyStack = [{ type: "SNAPSHOT", payload: sanitizeTreeForHistory(targetTab.mindData) }];
   targetTab.historyIndex = 0;
+  delete targetTab.history;
   targetTab.isDirty = true;
 
   if (typeof renderCallback === "function") {
@@ -299,12 +310,12 @@ export function restartAutoSaveEngine(renderApp) {
   if (intervalSec <= 0) return; // 用户选择关闭
 
   gAutoSaveTimer = setInterval(async () => {
-    const curTab = getActiveTab();
-    if (!curTab || !curTab.mindData || curTab.isEncrypted || curTab._isLocked) return;
-    
-    // 仅在文档存在变动（脏状态）时自动记录快照并落盘
-    if (curTab.isDirty) {
-      await createVersionSnapshot(curTab, "auto");
+    if (!state.tabs || state.tabs.length === 0) return;
+    for (let i = 0; i < state.tabs.length; i++) {
+      const tab = state.tabs[i];
+      if (tab.isDirty && tab.mindData && !tab.isEncrypted && !tab._isLocked) {
+        await createVersionSnapshot(tab, "auto");
+      }
     }
   }, intervalSec * 1000);
 }

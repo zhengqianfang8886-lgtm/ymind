@@ -1,4 +1,4 @@
-import { state, findNode, saveSnapshot, getPrimarySelectedNode } from "../core/state.js";
+import { state, findNode, saveSnapshot, getPrimarySelectedNode, getActiveDocumentContext } from "../core/state.js";
 import { showToast, escapeHtml } from "./dialog.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 
@@ -8,9 +8,55 @@ let taskCounter = 0;
 
 function sanitizeUrl(url) {
   const clean = String(url || "").trim();
-  if (/^(https?:\/\/|mailto:|#|\/)/i.test(clean)) return clean;
+  if (/^(https?:\/\/|mailto:|#|\/|ymind:\/\/)/i.test(clean)) {
+    return clean.replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
   return "#";
 }
+
+export const DOMPurify = {
+  sanitize(html) {
+    if (!html) return "";
+    const template = document.createElement("template");
+    template.innerHTML = String(html);
+    const content = template.content;
+
+    const dangerous = content.querySelectorAll(
+      "script, iframe, object, embed, base, link, meta, style, form, select, textarea, noscript, svg, math, foreignObject, applet"
+    );
+    dangerous.forEach(el => el.remove());
+
+    const safeProtocols = /^(https?:\/\/|mailto:|#|\/)/i;
+    const all = content.querySelectorAll("*");
+    for (let i = 0; i < all.length; i++) {
+      const el = all[i];
+      for (const attr of Array.from(el.attributes)) {
+        const name = attr.name.toLowerCase();
+        let val = attr.value.replace(/[\x00-\x20\s]+/g, "").toLowerCase();
+
+        if (name.startsWith("on") || name.includes("srcdoc")) {
+          el.removeAttribute(attr.name);
+          continue;
+        }
+
+        if (["href", "src", "xlink:href", "action", "formaction", "data"].includes(name)) {
+          try {
+            val = decodeURIComponent(val);
+          } catch {}
+          if (val.includes("javascript:") || val.includes("vbscript:") || val.includes("data:")) {
+            el.removeAttribute(attr.name);
+            continue;
+          }
+          if (!safeProtocols.test(attr.value.trim())) {
+            el.removeAttribute(attr.name);
+            continue;
+          }
+        }
+      }
+    }
+    return template.innerHTML;
+  }
+};
 
 function renderInlineTokens(rawText) {
   let s = escapeHtml(rawText);
@@ -195,48 +241,21 @@ export function renderMarkdown(md) {
     }
 
     // 5. 标题 (H1 - H6)
-    if (/^######\s+(.*)/.test(line)) {
+    const hMatch = line.match(/^(#{1,6})\s+(.*)/);
+    if (hMatch) {
       if (inList) { out.push("</ul>"); inList = false; }
       if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<h6>${renderInlineTokens(RegExp.$1)}</h6>`);
-      continue;
-    }
-    if (/^#####\s+(.*)/.test(line)) {
-      if (inList) { out.push("</ul>"); inList = false; }
-      if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<h5>${renderInlineTokens(RegExp.$1)}</h5>`);
-      continue;
-    }
-    if (/^####\s+(.*)/.test(line)) {
-      if (inList) { out.push("</ul>"); inList = false; }
-      if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<h4>${renderInlineTokens(RegExp.$1)}</h4>`);
-      continue;
-    }
-    if (/^###\s+(.*)/.test(line)) {
-      if (inList) { out.push("</ul>"); inList = false; }
-      if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<h3>${renderInlineTokens(RegExp.$1)}</h3>`);
-      continue;
-    }
-    if (/^##\s+(.*)/.test(line)) {
-      if (inList) { out.push("</ul>"); inList = false; }
-      if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<h2>${renderInlineTokens(RegExp.$1)}</h2>`);
-      continue;
-    }
-    if (/^#\s+(.*)/.test(line)) {
-      if (inList) { out.push("</ul>"); inList = false; }
-      if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<h1>${renderInlineTokens(RegExp.$1)}</h1>`);
+      const hLevel = hMatch[1].length;
+      out.push(`<h${hLevel}>${renderInlineTokens(hMatch[2])}</h${hLevel}>`);
       continue;
     }
 
     // 6. 普通引用块
-    if (/^>\s+(.*)/.test(line)) {
+    const quoteMatch = line.match(/^>\s+(.*)/);
+    if (quoteMatch) {
       if (inList) { out.push("</ul>"); inList = false; }
       if (inNumList) { out.push("</ol>"); inNumList = false; }
-      out.push(`<blockquote>${renderInlineTokens(RegExp.$1)}</blockquote>`);
+      out.push(`<blockquote>${renderInlineTokens(quoteMatch[1])}</blockquote>`);
       continue;
     }
 
@@ -314,9 +333,15 @@ export function flushPendingNote() {
   const textarea = document.getElementById("notes-textarea");
   if (!textarea) return;
 
-  const node = findNode(activeNoteNodeId, state.mindData);
+  const docCtx = getActiveDocumentContext();
+  const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
   if (node && (node.note || "") !== textarea.value) {
+    const hadNote = Boolean(node.note);
     node.note = textarea.value;
+    const hasNote = Boolean(node.note);
+    if (hadNote !== hasNote && docCtx) {
+      docCtx.markLayoutDirty(node.id);
+    }
     saveSnapshot();
   }
 }
@@ -328,6 +353,19 @@ export function isNotesDrawerOpen() {
 
 function bindPreviewInteractions(previewContainer) {
   if (!previewContainer) return;
+
+  // 🌟 Markdown 备注内的深度链接穿透拦截与跳转
+  previewContainer.querySelectorAll("a.note-link").forEach(a => {
+    a.onclick = async (e) => {
+      const href = a.getAttribute("href") || "";
+      if (href.startsWith("ymind://") || href.startsWith("#") || href.startsWith("http")) {
+        e.preventDefault();
+        e.stopPropagation();
+        const { navigateDeepLink } = await import("./deep-link.js");
+        navigateDeepLink(href);
+      }
+    };
+  });
 
   // 空态引导切换至编辑
   previewContainer.querySelector("#btn-start-write-note")?.addEventListener("click", () => {
@@ -377,7 +415,7 @@ function toggleTaskInMarkdown(taskIdx, newChecked) {
   });
 
   textarea.value = text;
-  const node = findNode(activeNoteNodeId, state.mindData);
+  const node = findNode(activeNoteNodeId, (getActiveDocumentContext()?.mindData || null));
   if (node) {
     node.note = text;
     saveSnapshot();
@@ -386,7 +424,7 @@ function toggleTaskInMarkdown(taskIdx, newChecked) {
 
   const preview = document.getElementById("notes-preview-content");
   if (preview) {
-    preview.innerHTML = renderMarkdown(text);
+    preview.innerHTML = DOMPurify.sanitize(renderMarkdown(text));
     bindPreviewInteractions(preview);
   }
   updateNotesStats(text);
@@ -418,7 +456,7 @@ export function syncNotesDrawerWithActiveNode() {
   if (textarea) textarea.value = primaryNode.note || "";
 
   if (preview) {
-    preview.innerHTML = renderMarkdown(primaryNode.note || "");
+    preview.innerHTML = DOMPurify.sanitize(renderMarkdown(primaryNode.note || ""));
     bindPreviewInteractions(preview);
   }
   updateNotesStats(primaryNode.note || "");
@@ -455,7 +493,7 @@ export function initNotesDrawer() {
       toolbar?.classList.add("hidden");
       if (viewHint) viewHint.innerText = "👁️ 预览模式 (可直接点击勾选待办)";
       if (preview && textarea) {
-        preview.innerHTML = renderMarkdown(textarea.value);
+        preview.innerHTML = DOMPurify.sanitize(renderMarkdown(textarea.value));
         bindPreviewInteractions(preview);
       }
     }
@@ -467,9 +505,16 @@ export function initNotesDrawer() {
 
   textarea?.addEventListener("input", () => {
     if (!activeNoteNodeId) return;
-    const node = findNode(activeNoteNodeId, state.mindData);
+    const docCtx = getActiveDocumentContext();
+    const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
     if (node) {
+      const hadNote = Boolean(node.note);
       node.note = textarea.value;
+      const hasNote = Boolean(node.note);
+      // 🌟 备注指示符增删时必须标记布局脏状态以重算节点卡片宽度
+      if (hadNote !== hasNote && docCtx) {
+        docCtx.markLayoutDirty(node.id);
+      }
       bus.emit(EVENTS.RENDER_APP);
       clearTimeout(noteSaveTimer);
       noteSaveTimer = setTimeout(() => saveSnapshot(), 500);
@@ -480,9 +525,13 @@ export function initNotesDrawer() {
   btnClear?.addEventListener("click", () => {
     if (!activeNoteNodeId || !textarea) return;
     textarea.value = "";
-    const node = findNode(activeNoteNodeId, state.mindData);
+    const docCtx = getActiveDocumentContext();
+    const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
     if (node) {
       delete node.note;
+      if (docCtx) {
+        docCtx.markLayoutDirty(node.id);
+      }
       saveSnapshot();
       bus.emit(EVENTS.RENDER_APP);
     }
@@ -543,7 +592,7 @@ export function openNotesDrawer(node) {
   textarea.value = targetNode.note || "";
 
   if (preview) {
-    preview.innerHTML = renderMarkdown(targetNode.note || "");
+    preview.innerHTML = DOMPurify.sanitize(renderMarkdown(targetNode.note || ""));
     bindPreviewInteractions(preview);
   }
   updateNotesStats(targetNode.note || "");

@@ -29,7 +29,26 @@ export async function idbSaveSnapshot(snapshot) {
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_SNAPSHOTS, "readwrite");
-    tx.objectStore(STORE_SNAPSHOTS).put(snapshot);
+    const store = tx.objectStore(STORE_SNAPSHOTS);
+    store.put(snapshot);
+
+    // 🌟 磁盘配额防护：限制单文档最多保留 30 条快照，全库最多保留 150 条
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const all = req.result || [];
+      const sameDoc = all.filter(s => s.tabTitle === snapshot.tabTitle);
+      if (sameDoc.length > 30) {
+        sameDoc.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        const toDel = sameDoc.slice(0, sameDoc.length - 30);
+        toDel.forEach(s => store.delete(s.id));
+      }
+      if (all.length > 150) {
+        all.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        const toDelTotal = all.slice(0, all.length - 150);
+        toDelTotal.forEach(s => store.delete(s.id));
+      }
+    };
+
     return new Promise((res) => {
       tx.oncomplete = () => res(true);
       tx.onerror = () => res(false);
@@ -37,6 +56,23 @@ export async function idbSaveSnapshot(snapshot) {
   } catch (err) {
     return false;
   }
+}
+
+/**
+ * 🌟 安全防线：当文档转换为加密保险箱时，物理销毁 IndexedDB 中该文档的全部历史明文快照
+ */
+export async function idbDeleteSnapshotsByTitle(tabTitle) {
+  if (!tabTitle) return;
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SNAPSHOTS, "readwrite");
+    const store = tx.objectStore(STORE_SNAPSHOTS);
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const list = req.result || [];
+      list.filter(s => s.tabTitle === tabTitle).forEach(s => store.delete(s.id));
+    };
+  } catch {}
 }
 
 export async function idbGetAllSnapshots() {

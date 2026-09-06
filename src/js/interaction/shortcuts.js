@@ -1,11 +1,14 @@
-import { state, getPrimarySelectedNode, findNode, findParent, getActiveTab } from "../core/state.js";
-import { undo, redo } from "../core/history.js";
+import { state, getPrimarySelectedNode, findNode, findParent, getActiveTab, sanitizeTreeForHistory, getActiveDocumentContext } from "../core/state.js";
+import { undo, redo, executeCommand, executeCompoundCommand, COMMANDS } from "../core/history.js";
 import { locateFocusedNode, smartAdaptiveCenter, zoomViewportByFactor, resetZoom100 } from "../core/camera.js";
 import { syncInspectorUi } from "../ui/inspector.js";
 import { addChildNode, addSiblingNode, deleteSelectedNodes, markDirtyAndRefresh } from "./node-actions.js";
 import { startEditNode } from "../render/render.js";
 import { lockCurrentTab, openVaultSetModal } from "../ui/vault.js";
-import { closeTabWithConfirm } from "../core/tab-manager.js";
+import { closeTabWithConfirm, switchTabRelative, renderTabBar } from "../core/tab-manager.js";
+import { createNewTab } from "../core/state.js";
+import { smartCenterOnSelectedNode } from "../core/camera.js";
+import { updateSecurityDockStatus } from "../ui/vault.js";
 import { syncNotesDrawerWithActiveNode, closeNotesDrawer, openNotesDrawer, isNotesDrawerOpen } from "../ui/notes.js";
 import { toggleRecallMode, openFlashcardModal } from "../ui/flashcards.js";
 import { openVersionHistoryModal } from "../storage/storage.js";
@@ -22,22 +25,24 @@ export function isApplePlatform() {
 }
 
 export function handleArrowNavigation(key, renderApp) {
-  let current = getPrimarySelectedNode();
-  const root = findNode(state.focusedRootId, state.mindData) || state.mindData;
+  const ctx = getActiveDocumentContext();
+  if (!ctx) return;
+  let current = ctx.primarySelectedNode;
+  const root = findNode(ctx.focusedRootId, ctx.mindData) || ctx.mindData;
   if (!root) return;
 
   if (!current) {
-    state.selectedIds = new Set([root.id]);
-    renderApp();
-    syncInspectorUi();
-    locateFocusedNode(root.id, true);
-    syncNotesDrawerWithActiveNode();
+    ctx.selectNode(root.id);
+    bus.emit(EVENTS.RENDER_APP);
+    syncInspectorUi(ctx);
+    locateFocusedNode(root.id, true, ctx, "keyboard");
+    syncNotesDrawerWithActiveNode(ctx);
     return;
   }
 
-  const isRoot = current.id === (state.focusedRootId || root.id);
+  const isRoot = current.id === (ctx.focusedRootId || root.id);
   const parent = findParent(current.id, root);
-  const structure = state.layoutStructure || "mindmap";
+  const structure = ctx.layoutStructure || "mindmap";
   let target = null;
 
   if (isRoot) {
@@ -56,7 +61,7 @@ export function handleArrowNavigation(key, renderApp) {
       else if (key === "ArrowUp") target = rList[rList.length - 1] || lList[lList.length - 1];
     }
   } else if (parent) {
-    const isMindmapRootChild = structure === "mindmap" && parent.id === (state.focusedRootId || root.id);
+    const isMindmapRootChild = structure === "mindmap" && parent.id === (ctx.focusedRootId || root.id);
     const siblings = isMindmapRootChild
       ? (current.branchDirection === "left"
           ? (parent.leftChildren || parent.children.filter((_, i) => i % 2 === 1))
@@ -79,16 +84,17 @@ export function handleArrowNavigation(key, renderApp) {
   }
 
   if (target) {
-    state.selectedIds = new Set([target.id]);
-    renderApp();
-    syncInspectorUi();
-    locateFocusedNode(target.id, true);
-    syncNotesDrawerWithActiveNode();
+    ctx.selectNode(target.id);
+    bus.emit(EVENTS.RENDER_APP);
+    syncInspectorUi(ctx);
+    locateFocusedNode(target.id, true, ctx, "keyboard");
+    syncNotesDrawerWithActiveNode(ctx);
   }
 }
 
 export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
   window.addEventListener("keydown", async (e) => {
+    const ctx = getActiveDocumentContext();
     const isMac = isApplePlatform();
     const cmd = isMac ? e.metaKey : e.ctrlKey;
     const isAlt = e.altKey;
@@ -105,6 +111,12 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
 
     // 🌟 1. 标准规范的 Escape 层级处理机制（严禁在画布上误退首页）
     if (e.key === "Escape") {
+      const attrMenu = document.getElementById("menu-node-attributes");
+      if (attrMenu && !attrMenu.classList.contains("hidden")) {
+        attrMenu.classList.add("hidden");
+        document.getElementById("btn-node-attributes")?.classList.remove("active");
+        return;
+      }
       const activeWrapper = document.querySelector(".dropdown-wrapper.active");
       if (activeWrapper) {
         activeWrapper.classList.remove("active");
@@ -130,21 +142,21 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         return;
       }
       // 处于单分支专注模式时，按 Esc 退出专注
-      const rootId = state.mindData?.id || "root";
-      if (state.focusedRootId && state.focusedRootId !== rootId) {
+      const rootId = ctx?.mindData?.id || "root";
+      if (ctx?.focusedRootId && ctx.focusedRootId !== rootId) {
         e.preventDefault();
-        state.focusedRootId = rootId;
-        state.isLayoutDirty = true;
+        ctx.focusedRootId = rootId;
+        ctx.isLayoutDirty = true;
         renderApp();
-        smartAdaptiveCenter(null, true);
+        smartAdaptiveCenter(null, true, ctx);
         return;
       }
       // 画布上选中节点时，按 Esc 取消选择，聚焦根节点
-      if (state.selectedIds && state.selectedIds.size > 0 && !state.selectedIds.has(rootId)) {
+      if (ctx?.selectedIds && ctx.selectedIds.size > 0 && !ctx.selectedIds.has(rootId)) {
         e.preventDefault();
-        state.selectedIds = new Set([rootId]);
+        ctx.selectNode(rootId);
         renderApp();
-        syncInspectorUi();
+        syncInspectorUi(ctx);
         return;
       }
       // 仅当用户身处 Home Hub 首页时，按 Esc 返回导图
@@ -157,8 +169,10 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
       return;
     }
 
-    // 2. 文本输入中全面放行原生事件
-    if (e.target.closest("input, textarea, select, [contenteditable=true]") || e.target.isContentEditable || state.editingNodeId) {
+    // 2. 文本输入中全面放行原生事件（浮层隐藏时防范残留 editingNodeId 锁死）
+    const editorEl = document.getElementById("inline-editor");
+    const isEditorActive = state.editingNodeId && editorEl && !editorEl.classList.contains("hidden");
+    if (e.target.closest("input, textarea, select, [contenteditable=true]") || e.target.isContentEditable || isEditorActive) {
       return;
     }
 
@@ -173,8 +187,14 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
     if (isAlt && !cmd) {
       if (code === "KeyC" || key === "c" || key === "ç") {
         e.preventDefault();
-        smartAdaptiveCenter(null, true);
-        showToast("🎯 画布已自适应居中");
+        const docCtx = getActiveDocumentContext();
+        const primary = docCtx?.primarySelectedNode;
+        if (primary && primary.id !== docCtx?.focusedRootId) {
+          smartAdaptiveCenter(primary, true, docCtx);
+        } else {
+          smartAdaptiveCenter(null, true, docCtx);
+        }
+        showToast("🎯 已自适应定位");
         return;
       }
       if (code === "Digit1" || code === "Numpad1" || key === "1" || key === "¡") {
@@ -229,10 +249,26 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         else openVaultSetModal();
         return;
       }
+      if (code === "KeyX" || key === "x" || key === "≈") {
+        e.preventDefault();
+        const { toggleNodeTodo } = await import("../ui/todo.js");
+        toggleNodeTodo();
+        return;
+      }
     }
 
     // 5. Cmd / Ctrl + Shift 组合键
     if (cmd && e.shiftKey) {
+      if (code === "BracketLeft" || key === "{" || key === "[") {
+        e.preventDefault();
+        switchTabRelative(-1);
+        return;
+      }
+      if (code === "BracketRight" || key === "}" || key === "]") {
+        e.preventDefault();
+        switchTabRelative(1);
+        return;
+      }
       if (code === "KeyH" || key === "h") {
         e.preventDefault();
         closeNotesDrawer();
@@ -249,6 +285,61 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
 
     // 6. Cmd / Ctrl 单独组合键
     if (cmd && !e.shiftKey && !isAlt) {
+      if (code === "KeyC" || key === "c") {
+        const p = ctx?.primarySelectedNode;
+        if (p) {
+          e.preventDefault();
+          state.clipboardBranch = sanitizeTreeForHistory(p);
+          showToast(`📋 已复制分支「${p.text || "主题"}」`);
+        }
+        return;
+      }
+      if (code === "KeyX" || key === "x") {
+        const p = ctx?.primarySelectedNode;
+        if (p && p.id !== ctx.focusedRootId && ctx.mindData) {
+          e.preventDefault();
+          state.clipboardBranch = sanitizeTreeForHistory(p);
+          const parent = findParent(p.id, ctx.mindData);
+          if (parent) {
+            const idx = parent.children.findIndex(c => c.id === p.id);
+            ctx.executeCommand({
+              type: COMMANDS.REMOVE_NODE,
+              nodeId: p.id,
+              oldParentId: parent.id,
+              oldIndex: idx,
+              oldNode: p
+            });
+            ctx.selectNode(parent.id);
+            renderApp();
+            showToast(`✂️ 已剪切分支「${p.text || "主题"}」`);
+          }
+        }
+        return;
+      }
+      if (code === "KeyV" || key === "v") {
+        const p = ctx?.primarySelectedNode || findNode(ctx?.focusedRootId, ctx?.mindData);
+        if (p && state.clipboardBranch && ctx) {
+          e.preventDefault();
+          const cloned = sanitizeTreeForHistory(state.clipboardBranch);
+          function refreshIds(n) {
+            n.id = "node_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5);
+            if (n.children) n.children.forEach(refreshIds);
+          }
+          refreshIds(cloned);
+          ctx.executeCommand({
+            type: COMMANDS.INSERT_NODE,
+            parentId: p.id,
+            index: p.children ? p.children.length : 0,
+            node: cloned
+          });
+          p.collapsed = false;
+          ctx.selectNode(cloned.id);
+          ctx.isLayoutDirty = true;
+          renderApp();
+          showToast(`📥 已粘贴分支「${cloned.text || "主题"}」`);
+        }
+        return;
+      }
       if (code === "KeyZ" || key === "z") {
         e.preventDefault();
         undo(renderApp);
@@ -277,6 +368,16 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         if (curTab) await closeTabWithConfirm(curTab.id, renderApp, () => {});
         return;
       }
+      if (code === "KeyT" || key === "t") {
+        e.preventDefault();
+        createNewTab();
+        renderTabBar();
+        bus.emit(EVENTS.RENDER_APP);
+        syncInspectorUi();
+        updateSecurityDockStatus();
+        smartCenterOnSelectedNode(state, false);
+        return;
+      }
       if (key === "=" || key === "+" || code === "Equal" || code === "NumpadAdd") {
         e.preventDefault();
         zoomViewportByFactor(1.15);
@@ -291,6 +392,20 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         e.preventDefault();
         resetZoom100();
         showToast("🔍 视图已重置为 100%");
+        return;
+      }
+    }
+
+    // 桌面通用 Ctrl+PageUp/Down 标签切换
+    if (e.ctrlKey && !e.shiftKey && !isAlt) {
+      if (code === "PageUp") {
+        e.preventDefault();
+        switchTabRelative(-1);
+        return;
+      }
+      if (code === "PageDown") {
+        e.preventDefault();
+        switchTabRelative(1);
         return;
       }
     }
@@ -315,23 +430,39 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         syncNotesDrawerWithActiveNode();
         return;
       }
-      if (e.key === "F2" || e.key === " ") {
+      const isSpaceOrF2 = code === "Space" || key === " " || key === "spacebar" || key === "space" || code === "F2" || key === "f2";
+      if (isSpaceOrF2) {
         e.preventDefault();
-        const p = getPrimarySelectedNode();
-        if (p) startEditNode(p, state, renderApp, false);
+        const ctx = getActiveDocumentContext();
+        const p = ctx?.primarySelectedNode || getPrimarySelectedNode(ctx);
+        if (p && ctx) {
+          startEditNode(p, state, () => bus.emit(EVENTS.RENDER_APP), false, ctx);
+        }
         return;
       }
       if (["1", "2", "3", "4", "0"].includes(e.key)) {
-        const primary = getPrimarySelectedNode();
-        if (primary && state.selectedIds && state.selectedIds.size > 0) {
+        const primary = ctx?.primarySelectedNode;
+        if (primary && ctx?.selectedIds && ctx.selectedIds.size > 0) {
           e.preventDefault();
           const pVal = e.key === "0" ? null : `P${e.key}`;
-          state.selectedIds.forEach(id => {
-            const n = findNode(id, state.mindData);
-            if (n) n.priority = pVal;
+          const subCommands = [];
+          ctx.selectedIds.forEach(id => {
+            const n = findNode(id, ctx.mindData);
+            if (n) {
+              subCommands.push({
+                type: COMMANDS.UPDATE_ATTRS,
+                nodeId: n.id,
+                oldAttrs: { priority: n.priority || null },
+                newAttrs: { priority: pVal }
+              });
+            }
           });
-          markDirtyAndRefresh(renderApp);
-          syncInspectorUi();
+          if (subCommands.length === 1) {
+            ctx.executeCommand(subCommands[0], true);
+          } else if (subCommands.length > 1) {
+            ctx.executeCompoundCommand(subCommands, true);
+          }
+          syncInspectorUi(ctx);
           showToast(pVal ? `🚩 优先级已设为 ${pVal}` : "🚩 已清除优先级");
           return;
         }

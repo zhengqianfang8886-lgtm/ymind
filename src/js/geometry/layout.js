@@ -1,6 +1,7 @@
 import { COLOR_PALETTES, PRIORITY_COLORS } from "../data/palettes.js";
 import { getGlobalSettings } from "../core/config.js";
 import { bus, EVENTS } from "../core/event-bus.js";
+import { getAncestors } from "../core/tree-utils.js";
 
 export { PRIORITY_COLORS };
 
@@ -10,8 +11,74 @@ export const SPACING_CONFIG = {
   loose: { hGap: 68, vGap: 22 }
 };
 
-const measureCanvas = document.createElement("canvas");
-const measureCtx = measureCanvas.getContext("2d");
+export const MAX_NODE_TEXT_WIDTH = 520;
+export const MAX_ROOT_TEXT_WIDTH = 640;
+
+export function wrapTextLines(text, fontSize, maxWidth) {
+  const raw = String(text ?? "");
+  if (!raw) return [""];
+  const paragraphs = raw.split(/\r?\n/);
+  const resultLines = [];
+
+  for (let p = 0; p < paragraphs.length; p++) {
+    const para = paragraphs[p];
+    if (!para) {
+      resultLines.push("");
+      continue;
+    }
+    if (getTextLineWidth(para, fontSize) <= maxWidth) {
+      resultLines.push(para);
+      continue;
+    }
+
+    const tokens = para.match(/[\u4e00-\u9fa5]|[a-zA-Z0-9_\-]+|\s+|[^\s\w\u4e00-\u9fa5]/g) || [para];
+    let curLine = "";
+    let curWidth = 0;
+
+    for (let t = 0; t < tokens.length; t++) {
+      const token = tokens[t];
+      const tokenW = getTextLineWidth(token, fontSize);
+
+      if (tokenW > maxWidth) {
+        for (let c = 0; c < token.length; c++) {
+          const ch = token[c];
+          const chW = getTextLineWidth(ch, fontSize);
+          if (curWidth + chW > maxWidth && curLine.length > 0) {
+            resultLines.push(curLine);
+            curLine = ch;
+            curWidth = chW;
+          } else {
+            curLine += ch;
+            curWidth += chW;
+          }
+        }
+        continue;
+      }
+
+      if (curWidth + tokenW > maxWidth && curLine.length > 0) {
+        resultLines.push(curLine);
+        if (/^\s+$/.test(token)) {
+          curLine = "";
+          curWidth = 0;
+        } else {
+          curLine = token;
+          curWidth = tokenW;
+        }
+      } else {
+        curLine += token;
+        curWidth += tokenW;
+      }
+    }
+    if (curLine.length > 0) {
+      resultLines.push(curLine);
+    }
+  }
+
+  return resultLines.length > 0 ? resultLines : [""];
+}
+
+const measureCanvas = (typeof document !== "undefined" && typeof document.createElement === "function") ? document.createElement("canvas") : null;
+const measureCtx = measureCanvas && typeof measureCanvas.getContext === "function" ? measureCanvas.getContext("2d") : null;
 const textWidthCache = new Map();
 
 let cachedFontFamily = null;
@@ -30,10 +97,48 @@ export function invalidateFontCache() {
 
 bus.on(EVENTS.CONFIG_CHANGE, () => invalidateFontCache());
 
+export function markNodeLayoutDirty(nodeOrId, root) {
+  if (!root) return;
+  const targetId = typeof nodeOrId === "object" ? nodeOrId?.id : nodeOrId;
+  if (!targetId || targetId === root.id) {
+    root._layoutDirty = true;
+    return;
+  }
+  const ancestors = getAncestors(targetId, root);
+  if (ancestors && ancestors.length > 0) {
+    for (let i = 0; i < ancestors.length; i++) {
+      ancestors[i]._layoutDirty = true;
+    }
+  } else {
+    root._layoutDirty = true;
+  }
+}
+
 /**
  * 🌟 快速字符宽度预估引擎 (Fast Math Estimator)
  * 纯数学码点判定，避免在 20,000 节点冷启动时连续触发 20,000 次底层 OS 字形渲染引擎
  */
+export function getTextLineWidth(text, fontSize) {
+  const raw = String(text ?? "");
+  if (!raw) return 0;
+  if (measureCtx) {
+    const fontFam = getActiveFontFamily();
+    const cacheKey = `${raw}_${fontSize}_${fontFam}`;
+    let w = textWidthCache.get(cacheKey);
+    if (w === undefined) {
+      measureCtx.font = `500 ${fontSize}px ${fontFam}`;
+      w = Math.ceil(measureCtx.measureText(raw).width);
+      if (textWidthCache.size >= 12000) {
+        const iter = textWidthCache.keys();
+        for (let j = 0; j < 2500; j++) textWidthCache.delete(iter.next().value);
+      }
+      textWidthCache.set(cacheKey, w);
+    }
+    return w;
+  }
+  return estimateTextWidthFast(raw, fontSize);
+}
+
 export function estimateTextWidthFast(text, fontSize) {
   const raw = String(text ?? "");
   if (!raw) return 0;
@@ -46,9 +151,20 @@ export function estimateTextWidthFast(text, fontSize) {
     for (let i = 0; i < line.length; i++) {
       const code = line.charCodeAt(i);
       if (code >= 0x20 && code <= 0x7e) {
-        w += fontSize * 0.58;
+        const ch = line[i];
+        if ("iljt!|'`:;,. ".indexOf(ch) !== -1) {
+          w += fontSize * 0.32;
+        } else if ("mwMW@%#&".indexOf(ch) !== -1) {
+          w += fontSize * 0.88;
+        } else if (code >= 0x30 && code <= 0x39) {
+          w += fontSize * 0.56;
+        } else if (code >= 0x41 && code <= 0x5a) {
+          w += fontSize * 0.68;
+        } else {
+          w += fontSize * 0.54;
+        }
       } else if (code > 0x7e) {
-        w += fontSize * 1.05;
+        w += fontSize * 1.0;
       }
     }
     if (w > maxW) maxW = w;
@@ -89,7 +205,8 @@ export function measureTextWidth(text, fontSize = 13.5, fontWeight = "500", font
 export function measureNodeSize(node, level, focusedRootId) {
   const isRoot = node.id === focusedRootId;
   const isLevel1 = level === 1;
-  const defFontSize = isRoot ? 16 : 13.5;
+  // 🌟 Apple 原生视觉梯次：根节点 18px 庄重有力，一级主干 14.5px 挺拔，二级及细节 13.5px
+  const defFontSize = isRoot ? 18 : (isLevel1 ? 14.5 : 13.5);
   const defFontWeight = isRoot ? "700" : (isLevel1 ? "600" : "500");
   const fontSize = node.fontSize ? parseFloat(node.fontSize) : defFontSize;
   const fontWeight = node.fontWeight || defFontWeight;
@@ -97,35 +214,45 @@ export function measureNodeSize(node, level, focusedRootId) {
   const textDecoration = node.textDecoration || "none";
   const fontFam = getActiveFontFamily();
 
-  const contentSignature = `${node.text}_${fontSize}_${fontWeight}_${fontStyle}_${textDecoration}_${node.icon || ""}_${node.priority || ""}_${node.progress || ""}_${node.note ? "1" : "0"}_${(node.tags || []).join(",")}_${fontFam}`;
+  const contentSignature = `${node.text}_${fontSize}_${fontWeight}_${fontStyle}_${textDecoration}_${node.icon || ""}_${node.priority || ""}_${node.progress || ""}_${node.note ? "1" : "0"}_${node.link ? "1" : "0"}_${(node.tags || []).join(",")}_${fontFam}_w8_${node.todo ? (node.done ? "2" : "1") : "0"}`;
   if (node._sizeSignature === contentSignature && node.width && node.height) return;
 
-  const lines = String(node.text ?? "").split(/\r?\n/);
-  const lineHeight = Math.round(fontSize * 1.38);
-  
-  // 🌟 使用毫秒级极速字形预估
-  const textWidth = estimateTextWidthFast(node.text, fontSize);
+  const lineHeight = Math.round(fontSize * 1.32);
+  const maxAllowedTextW = isRoot ? MAX_ROOT_TEXT_WIDTH : MAX_NODE_TEXT_WIDTH;
+  const lines = wrapTextLines(node.text, fontSize, maxAllowedTextW);
+
+  let maxLineW = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lw = getTextLineWidth(lines[i], fontSize);
+    if (lw > maxLineW) maxLineW = lw;
+  }
+  const textWidth = Math.min(maxLineW, maxAllowedTextW);
 
   let extraLeftWidth = 0;
-  if (node.icon) extraLeftWidth += 24;
-  if (node.priority) extraLeftWidth += 28;
-  if (node.progress) extraLeftWidth += 22;
-  if (node.note) extraLeftWidth += 24;
+  if (node.icon) extraLeftWidth += 18;
+  if (node.priority) extraLeftWidth += 22;
+  if (node.progress !== undefined && node.progress !== null && node.progress !== '') extraLeftWidth += 17;
+  if (node.todo) extraLeftWidth += 18;
+  if (node.note) extraLeftWidth += 18;
+  if (node.link) extraLeftWidth += 17;
 
   let tagsWidth = 0;
   if (node.tags && Array.isArray(node.tags) && node.tags.length > 0) {
+    tagsWidth += 5;
     for (let i = 0; i < node.tags.length; i++) {
-      tagsWidth += estimateTextWidthFast(String(node.tags[i]), 9.5) + 18;
+      tagsWidth += getTextLineWidth(String(node.tags[i]), 9.5) + 11;
+      if (i < node.tags.length - 1) tagsWidth += 3;
     }
-    tagsWidth += 6;
   }
 
-  const padX = isRoot ? 18 : 13;
-  const padY = isRoot ? 10 : 7;
-  const minH = isRoot ? 38 : (isLevel1 ? 32 : 28);
+  // 🌟 黄金纵横比：根节点 44px 沉稳锚定，一级节点 33px 留白舒适，二级节点 27px
+  const padX = isRoot ? 22 : (isLevel1 ? 12 : 9);
+  const padY = isRoot ? 11 : (isLevel1 ? 7 : 5.5);
+  const minH = isRoot ? 44 : (isLevel1 ? 33 : 27);
+  const minW = isRoot ? 80 : (isLevel1 ? 44 : 34);
 
   node.contentWidth = extraLeftWidth + textWidth + tagsWidth;
-  node.width = Math.ceil(node.contentWidth + padX * 2);
+  node.width = Math.max(minW, Math.ceil(node.contentWidth + padX * 2));
   const rawH = Math.ceil((lines.length - 1) * lineHeight + fontSize + padY * 2);
   node.height = Math.max(minH, rawH);
 
@@ -136,7 +263,14 @@ export function measureNodeSize(node, level, focusedRootId) {
   node._sizeSignature = contentSignature;
 }
 
-export function computeLayout(root, level = 0, focusedRootId = "root", structure = "mindmap", density = "normal") {
+/**
+ * @param {import('../../types').MindNode} root
+ * @param {number} [level]
+ * @param {string} [focusedRootId]
+ * @param {string} [structure]
+ * @param {string} [density]
+ */
+export function computeLayout(root, level = 0, focusedRootId = "root", structure = "mindmap", density = "normal", forceAll = false) {
   const spacing = SPACING_CONFIG[density] || SPACING_CONFIG.normal;
   const { hGap, vGap } = spacing;
 
@@ -154,6 +288,10 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
 
     postOrder.push({ node, lvl });
     if (node.children && !node.collapsed) {
+      // 增量短路优化：非全量排版下，未标记脏且已有几何尺寸的干净子树无需深入遍历
+      if (!forceAll && node._layoutDirty === false && node.treeWidth !== undefined && node.treeHeight !== undefined) {
+        continue;
+      }
       for (let i = 0; i < node.children.length; i++) {
         stack.push({ node: node.children[i], lvl: lvl + 1 });
       }
@@ -162,6 +300,11 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
 
   for (let i = postOrder.length - 1; i >= 0; i--) {
     const { node } = postOrder[i];
+    if (!forceAll && node._layoutDirty === false && node.treeWidth !== undefined && node.treeHeight !== undefined) {
+      continue;
+    }
+    node._layoutDirty = false;
+
     if (!node.children || node.children.length === 0 || node.collapsed) {
       node.treeHeight = node.height;
       node.treeWidth = node.width;
@@ -181,7 +324,14 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
       node.leftChildren = [];
       for (let idx = 0; idx < node.children.length; idx++) {
         const child = node.children[idx];
-        idx % 2 === 0 ? node.rightChildren.push(child) : node.leftChildren.push(child);
+        if (!child.branchDirection || (child.branchDirection !== "left" && child.branchDirection !== "right")) {
+          child.branchDirection = node.rightChildren.length <= node.leftChildren.length ? "right" : "left";
+        }
+        if (child.branchDirection === "left") {
+          node.leftChildren.push(child);
+        } else {
+          node.rightChildren.push(child);
+        }
       }
 
       let rHeight = 0, rWidth = 0;
@@ -217,13 +367,28 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
   }
 }
 
-export function assignCoordinates(root, startX, startY, focusedRootId = "root", structure = "mindmap", defDirection = null, defTheme = null, paletteKey = "apple-classic", density = "normal", targetSpatialIndex = null) {
+/**
+ * @param {import('../../types').MindNode} root
+ * @param {number} startX
+ * @param {number} startY
+ * @param {string} [focusedRootId]
+ * @param {string} [structure]
+ * @param {string | null} [defDirection]
+ * @param {any} [defTheme]
+ * @param {string} [paletteKey]
+ * @param {string} [density]
+ * @param {any} [targetSpatialIndex]
+ */
+export function assignCoordinates(root, startX, startY, focusedRootId = "root", structure = "mindmap", defDirection = null, defTheme = null, paletteKey = "apple-classic", density = "normal", targetSpatialIndex = null, forceRebuildSpatial = false) {
   const currentPalette = COLOR_PALETTES[paletteKey] || COLOR_PALETTES["apple-classic"];
   const paletteList = currentPalette.branches;
   const spacing = SPACING_CONFIG[density] || SPACING_CONFIG.normal;
   const { hGap, vGap } = spacing;
 
-  if (targetSpatialIndex) targetSpatialIndex.clear();
+  const isColdStart = targetSpatialIndex && !targetSpatialIndex.divided && targetSpatialIndex.items.length === 0;
+  if (targetSpatialIndex && (forceRebuildSpatial || isColdStart)) {
+    targetSpatialIndex.clear();
+  }
 
   let initialDir = defDirection;
   if (!initialDir) {
@@ -256,14 +421,23 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
     if (theme) node.colorTheme = theme;
 
     if (targetSpatialIndex) {
-      targetSpatialIndex.insert({
+      const spatialItem = {
         id: node.id,
         x: node.x,
         y: node.y,
         width: node.width,
         height: node.height,
         node: node
-      });
+      };
+      if (forceRebuildSpatial || isColdStart) {
+        targetSpatialIndex.insert(spatialItem);
+      } else {
+        const prev = node._prevSpatial;
+        if (!prev || prev.x !== node.x || prev.y !== node.y || prev.width !== node.width || prev.height !== node.height) {
+          targetSpatialIndex.update(spatialItem);
+        }
+      }
+      node._prevSpatial = { x: node.x, y: node.y, width: node.width, height: node.height };
     }
 
     processedList.push(node);

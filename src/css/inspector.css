@@ -59,10 +59,10 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px;
+  padding: 12px 14px 24px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 10px;
   box-sizing: border-box;
 }
 .inspector-content-scroll::-webkit-scrollbar { width: 5px; }
@@ -103,10 +103,10 @@
 .inspector-accordion-item.open .accordion-chevron { transform: rotate(180deg); }
 
 .inspector-accordion-body {
-  padding: 9px 12px;
+  padding: 11px 13px 14px;
   display: none;
   flex-direction: column;
-  gap: 7px;
+  gap: 10px;
   box-sizing: border-box;
   overflow: visible;
   width: 100%;
@@ -342,19 +342,100 @@
   font-weight: 600;
 }
 
-/* 图标选择区 */
-.btn-inspector-clear { background: transparent; border: none; color: var(--text-tertiary); font-size: 11px; cursor: pointer; padding: 2px 5px; }
-.btn-inspector-clear:hover { color: var(--apple-red); }
-.inspector-icon-tabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; width: 100%; }
+/* 🌟 图标选择区高定美化与呼吸间距 */
+.btn-inspector-clear { 
+  background: transparent; 
+  border: none; 
+  color: var(--text-tertiary); 
+  font-size: 11px; 
+  font-weight: 600;
+  cursor: pointer; 
+  padding: 2px 8px; 
+  border-radius: 6px;
+  transition: all 0.14s ease;
+}
+.btn-inspector-clear:hover { 
+  color: var(--apple-red); 
+  background: rgba(255, 59, 48, 0.08); 
+}
+
+.inspector-icon-tabs { 
+  display: flex; 
+  gap: 5px; 
+  overflow-x: auto; 
+  padding: 1px 1px 7px 1px; 
+  scrollbar-width: none; 
+  width: 100%; 
+  box-sizing: border-box;
+}
 .inspector-icon-tabs::-webkit-scrollbar { display: none; }
-.inspector-icon-tab-btn { padding: 3px 8px; font-size: 11px; white-space: nowrap; background: rgba(0,0,0,0.04); border: none; border-radius: 10px; color: var(--text-secondary); cursor: pointer; }
-.inspector-icon-tab-btn.active { background: var(--apple-blue); color: #fff; font-weight: 600; }
-.inspector-icon-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; max-height: 150px; overflow-y: auto; padding-right: 3px; width: 100%; }
+
+.inspector-icon-tab-btn { 
+  padding: 4px 9px; 
+  font-size: 11px; 
+  font-weight: 500;
+  white-space: nowrap; 
+  background: rgba(0, 0, 0, 0.04); 
+  border: none; 
+  border-radius: 8px; 
+  -webkit-corner-smoothing: 0.62;
+  color: var(--text-secondary); 
+  cursor: pointer; 
+  transition: all 0.14s ease;
+}
+.inspector-icon-tab-btn:hover {
+  background: rgba(0, 0, 0, 0.07);
+  color: var(--text-primary);
+}
+.inspector-icon-tab-btn.active { 
+  background: var(--apple-blue); 
+  color: #ffffff; 
+  font-weight: 600; 
+  box-shadow: 0 1px 3px rgba(0, 113, 227, 0.28);
+}
+
+.inspector-icon-grid { 
+  display: grid; 
+  grid-template-columns: repeat(6, 1fr); 
+  gap: 7px; 
+  max-height: 176px; 
+  overflow-y: auto; 
+  padding: 4px 5px 6px 2px; 
+  width: 100%; 
+  box-sizing: border-box;
+}
 .inspector-icon-grid::-webkit-scrollbar { width: 4px; }
-.inspector-icon-grid::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 4px; }
-.inspector-icon-chip { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 15px; background: #f8fafc; border-radius: 7px; border: 1px solid rgba(0,0,0,0.06); cursor: pointer; transition: transform 0.12s; }
-.inspector-icon-chip:hover { transform: scale(1.15); background: var(--apple-blue-subtle); }
-.inspector-icon-chip.active { border-color: var(--apple-blue); background: var(--apple-blue-subtle); }
+.inspector-icon-grid::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.12); border-radius: 4px; }
+.inspector-icon-grid::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.25); }
+
+.inspector-icon-chip { 
+  height: 35px;
+  width: 100%;
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  font-size: 16px; 
+  background: #f8fafc; 
+  border-radius: 8px; 
+  -webkit-corner-smoothing: 0.62;
+  border: 1px solid rgba(0, 0, 0, 0.07); 
+  cursor: pointer; 
+  box-sizing: border-box;
+  transition: all 0.14s cubic-bezier(0.16, 1, 0.3, 1); 
+  user-select: none;
+}
+.inspector-icon-chip:hover { 
+  transform: translateY(-1.5px) scale(1.06); 
+  background: #ffffff;
+  border-color: rgba(0, 113, 227, 0.38);
+  box-shadow: 0 3px 8px rgba(0, 113, 227, 0.15);
+  z-index: 2;
+}
+.inspector-icon-chip.active { 
+  border-color: var(--apple-blue); 
+  background: var(--apple-blue-subtle); 
+  box-shadow: 0 0 0 1.5px var(--apple-blue-focus-ring);
+}
 
 /* 🌟 配色方案卡片高度与内容防坍塌保护 */
 .palette-chip {

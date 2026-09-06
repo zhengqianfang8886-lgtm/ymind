@@ -1,4 +1,4 @@
-import { state, findNode } from "../core/state.js";
+import { state, findNode, getActiveDocumentContext } from "../core/state.js";
 import { camera, requestTransformUpdate } from "../core/camera.js";
 
 const minimapWidget = document.getElementById("minimap-widget");
@@ -32,11 +32,11 @@ export function updateMinimap() {
     return;
   }
 
-  const currentRoot = findNode(state.focusedRootId, state.mindData) || state.mindData;
+  const docCtx = getActiveDocumentContext();
+  const currentRoot = docCtx ? (findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData) : null;
   if (!currentRoot) return;
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
   function scanBounds(n) {
     if (n && n.x !== undefined && n.y !== undefined) {
       minX = Math.min(minX, n.x);
@@ -92,7 +92,9 @@ export function updateMinimap() {
     const nw = Math.max(3, (n.width || 80) * scaleRatio);
     const nh = Math.max(2, (n.height || 36) * scaleRatio);
     
-    ctx.fillStyle = n.id === state.focusedRootId ? "#0071e3" : (n.colorTheme ? n.colorTheme.border : "#94a3b8");
+    const activeRootId = docCtx?.focusedRootId || currentRoot?.id || "root";
+    const isSelected = Boolean(docCtx?.selectedIds?.has(n.id));
+    ctx.fillStyle = isSelected ? "#0071e3" : (n.id === activeRootId ? "#0077ed" : (n.colorTheme ? (n.colorTheme.solid || n.colorTheme.border) : "#94a3b8"));
     ctx.fillRect(nx, ny, nw, nh);
 
     if (n.children && !n.collapsed) n.children.forEach(drawMiniNode);

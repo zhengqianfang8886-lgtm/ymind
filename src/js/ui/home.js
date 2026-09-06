@@ -5,11 +5,23 @@ import { camera } from "../core/camera.js";
 import { syncInspectorUi, applyCanvasThemeToBody } from "./inspector.js";
 import { syncSettingsForm } from "./settings.js";
 import { showLockScreen, updateSecurityDockStatus } from "./vault.js";
-import { showToast, appAlert, appConfirm } from "./dialog.js";
+import { showToast, appConfirm } from "./dialog.js";
 
 const RECENT_KEY = "YMIND_PRO_RECENT_DOCS_V2";
 let activeHomeNav = "home";
 let activeTemplateCategory = "all";
+
+function safeSetRecentDocs(docs) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(docs));
+  } catch (e) {
+    if (Array.isArray(docs) && docs.length > 10) {
+      try {
+        localStorage.setItem(RECENT_KEY, JSON.stringify(docs.slice(0, 10)));
+      } catch {}
+    }
+  }
+}
 
 /**
  * 🌟 方案 B 纯净物理管道：自动清洗历史脏数据，绝对排除一切无物理路径的草稿条目
@@ -21,10 +33,15 @@ export function getRecentDocs() {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     // 过滤并仅保留具有物理路径的真实磁盘文件
-    const cleanFiles = parsed.filter(item => item && item.filePath && typeof item.filePath === "string" && item.filePath.trim().length > 0);
-    if (cleanFiles.length !== parsed.length) {
-      localStorage.setItem(RECENT_KEY, JSON.stringify(cleanFiles));
-    }
+    const cleanFiles = parsed
+      .filter(item => item && item.filePath && typeof item.filePath === "string" && item.filePath.trim().length > 0)
+      .map(item => {
+        delete item.password;
+        delete item.passwordHint;
+        delete item.encryptedVault;
+        return item;
+      });
+    safeSetRecentDocs(cleanFiles);
     return cleanFiles;
   } catch {
     return [];
@@ -34,7 +51,7 @@ export function getRecentDocs() {
 /**
  * 🌟 方案 B 核心铁律：仅当文件存在合法磁盘绝对路径时，才允许登记入“最近文档”
  */
-export function recordRecentDoc(title, data, layout = "mindmap", filePath = null, styles = {}, isEncrypted = false, password = null, passwordHint = "", encryptedVault = null, cameraTransform = null) {
+export function recordRecentDoc(title, data, layout = "mindmap", filePath = null, styles = {}, isEncrypted = false, cameraTransform = null) {
   // 核心拦截：无物理路径的临时草稿绝不写入“最近文档”！
   if (!filePath || typeof filePath !== "string" || filePath.trim().length === 0) {
     return;
@@ -59,16 +76,18 @@ export function recordRecentDoc(title, data, layout = "mindmap", filePath = null
       canvasBgPattern: styles.canvasBgPattern || (existingIdx >= 0 ? recents[existingIdx].canvasBgPattern : "dots"),
       starred: existingIdx >= 0 ? Boolean(recents[existingIdx].starred) : false,
       isEncrypted: Boolean(isEncrypted),
-      passwordHint: passwordHint || (encryptedVault?.hint || ""),
-      encryptedVault: isEncrypted ? encryptedVault : null,
-      camera: cameraTransform || (existingIdx >= 0 ? recents[existingIdx].camera : null),
+      camera: cameraTransform && typeof cameraTransform === "object" ? {
+        x: Math.round(cameraTransform.x || 0),
+        y: Math.round(cameraTransform.y || 0),
+        scale: Number((cameraTransform.scale || 1).toFixed(2))
+      } : (existingIdx >= 0 ? recents[existingIdx].camera : null),
       nodeCount: countNodes(data)
     };
 
     if (existingIdx >= 0) recents.splice(existingIdx, 1);
     recents.unshift(item);
     if (recents.length > 50) recents.pop();
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+    safeSetRecentDocs(recents);
   } catch (e) {
     console.warn("写入物理最近文档失败", e);
   }
@@ -85,7 +104,8 @@ export async function purgeDeletedFileEverywhere(filePath, docTitle, renderHome)
           removedTab.spatialIndex = null;
         }
         removedTab.mindData = null;
-        removedTab.history = [];
+        removedTab.historyStack = [];
+        delete removedTab.history;
       }
       if (state.activeTabId === removedTab?.id) {
         state.activeTabId = state.tabs[0]?.id || null;
@@ -93,7 +113,7 @@ export async function purgeDeletedFileEverywhere(filePath, docTitle, renderHome)
     }
 
     let recents = getRecentDocs().filter(r => r.filePath !== filePath);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+    safeSetRecentDocs(recents);
   }
   if (typeof renderHome === "function") renderHome();
 }
@@ -103,7 +123,7 @@ export function toggleStarDoc(docId, renderHome) {
   const doc = recents.find(r => r.id === docId);
   if (doc) {
     doc.starred = !doc.starred;
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+    safeSetRecentDocs(recents);
     renderHome();
   }
 }
@@ -114,7 +134,7 @@ export function removeRecentDoc(docId, renderHome) {
     purgeDeletedFileEverywhere(doc.filePath, doc.title, renderHome);
   } else {
     let recents = getRecentDocs().filter(r => r.id !== docId);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recents));
+    safeSetRecentDocs(recents);
     renderHome();
   }
 }
@@ -144,10 +164,10 @@ export async function clearAllRecentDocs(renderHome) {
   if (!confirmed) return;
 
   if (starredDocs.length > 0) {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(starredDocs));
+    safeSetRecentDocs(starredDocs);
     showToast(`🗑️ 已清空历史，保留了 ${starredDocs.length} 项星标文档`);
   } else {
-    localStorage.setItem(RECENT_KEY, JSON.stringify([]));
+    safeSetRecentDocs([]);
     showToast("🗑️ 最近文件历史记录已清空");
   }
 

@@ -1,7 +1,7 @@
 import { applyCanvasThemeToBody, syncInspectorUi } from "./inspector.js";
 import { camera } from "../core/camera.js";
 import { renderTabBar } from "../core/tab-manager.js";
-import { state, getActiveTab, closeTab, saveSnapshot } from "../core/state.js";
+import { state, getActiveTab, closeTab, saveSnapshot, sanitizeTreeForHistory } from "../core/state.js";
 import { encryptMindPayload, decryptMindPayload, evaluatePasswordStrength } from "../storage/crypto.js";
 import { showToast } from "./dialog.js";
 import { bus, EVENTS } from "../core/event-bus.js";
@@ -64,8 +64,8 @@ async function handleSaveVaultSettings() {
     return;
   }
   const modal = document.getElementById("apple-vault-set-modal");
-  const p1 = modal.querySelector("#vault-set-pass")?.value.trim();
-  const p2 = modal.querySelector("#vault-set-pass-confirm")?.value.trim();
+  const p1 = modal.querySelector("#vault-set-pass")?.value || "";
+  const p2 = modal.querySelector("#vault-set-pass-confirm")?.value || "";
   const hint = modal.querySelector("#vault-set-hint")?.value.trim() || "";
   const btnSaveSet = modal.querySelector("#btn-vault-set-save");
 
@@ -83,13 +83,21 @@ async function handleSaveVaultSettings() {
     tab.passwordHint = hint;
     tab._isLocked = false;
     tab.versions = [];
-    tab.encryptedVault = await encryptMindPayload(tab.mindData, p1, hint);
+
+    // 🌟 安全防线：启用密码保险箱时，物理销毁本地数据库中该文档的所有历史明文快照
+    try {
+      const { idbDeleteSnapshotsByTitle } = await import("../storage/idb.js");
+      await idbDeleteSnapshotsByTitle(tab.title);
+    } catch {}
+
+    const vault = await encryptMindPayload(tab.mindData, p1, hint);
+    tab.encryptedVault = vault;
     tab.isDirty = true;
 
-    saveSnapshot();
+    saveSnapshot(tab);
     closeVaultSetModal();
     updateSecurityDockStatus();
-    if (renderAppRef) renderAppRef();
+    if (typeof renderAppRef === "function") renderAppRef(); else bus.emit(EVENTS.RENDER_APP);
     showToast("🛡️ 已启用 Argon2id + AES-256 密码保险箱！");
   } finally {
     if (btnSaveSet) {
@@ -112,7 +120,7 @@ function handleDisableVault() {
   saveSnapshot();
   closeVaultSetModal();
   updateSecurityDockStatus();
-  if (renderAppRef) renderAppRef();
+  if (typeof renderAppRef === "function") renderAppRef(); else bus.emit(EVENTS.RENDER_APP);
   showToast("🔓 已解除加密保护，导图恢复为标准明文存储");
 }
 
@@ -129,10 +137,10 @@ export async function lockCurrentTab() {
 
   tab.mindData = { id: "root", text: "🔒 导图已锁定", children: [] };
   tab.password = null;
-  tab.history = [{ id: "root", text: "🔒 导图已锁定", children: [] }];
-  tab.historyIndex = 0;
   // 🛡️ 物理粉碎撤销/重做命令栈，杜绝锁屏后按 ⌘Z 穿透恢复明文
   tab.historyStack = [];
+  tab.historyIndex = -1;
+  delete tab.history;
   tab._isLocked = true;
   state.clipboardBranch = null;
 
@@ -166,6 +174,10 @@ export async function lockCurrentTab() {
   showLockScreen(tab);
   updateSecurityDockStatus();
   showToast("🔒 画布、剪贴板与显存残影已安全锁定");
+  try {
+    const { saveSessionImmediate } = await import("../storage/session.js");
+    saveSessionImmediate();
+  } catch {}
 }
 
 export function showLockScreen(tab) {
@@ -276,7 +288,7 @@ export function initVaultManager(renderApp) {
   async function handleUnlockAttempt() {
     const tab = getActiveTab();
     if (!tab || !posterPass) return;
-    const inputPass = posterPass.value.trim();
+    const inputPass = posterPass.value || "";
     if (!inputPass) return;
 
     try {
@@ -292,21 +304,35 @@ export function initVaultManager(renderApp) {
       tab._isLocked = false;
       tab.selectedIds = new Set([tab.mindData.id || "root"]);
       tab.focusedRootId = tab.mindData.id || "root";
-      tab.history = [JSON.parse(JSON.stringify(tab.mindData))];
+      tab.historyStack = [{ type: "SNAPSHOT", payload: sanitizeTreeForHistory(tab.mindData) }];
       tab.historyIndex = 0;
+      delete tab.history;
 
       btnPosterUnlock.innerText = "➔";
       btnPosterUnlock.disabled = false;
       hideLockScreen();
       showToast("🔓 验签成功，已解密展开导图！");
-      if (renderAppRef) renderAppRef();
+      if (typeof renderAppRef === "function") renderAppRef(); else bus.emit(EVENTS.RENDER_APP);
     } catch (err) {
       btnPosterUnlock.innerText = "➔";
       btnPosterUnlock.disabled = false;
       posterBox?.classList.remove("vault-shake-anim");
       void posterBox?.offsetWidth;
       posterBox?.classList.add("vault-shake-anim");
-      errorMsg?.classList.remove("hidden");
+
+      let tip = "密码错误，请重新输入";
+      if (err?.message === "UNSUPPORTED_ARGON2ID_ENV") {
+        tip = "当前环境缺失 Argon2id 算子（请使用桌面端打开）";
+      } else if (err?.message === "CORRUPT_PAYLOAD") {
+        tip = "解密成功但数据包内容已损坏";
+      } else if (err?.message === "EMPTY_PACKAGE") {
+        tip = "加密数据包为空";
+      }
+
+      if (errorMsg) {
+        errorMsg.innerText = tip;
+        errorMsg.classList.remove("hidden");
+      }
       posterPass.select();
     }
   }

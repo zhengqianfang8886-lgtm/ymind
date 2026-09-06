@@ -29,21 +29,28 @@ export function showToast(message, duration = 2200) {
   // 匹配前置 Emoji 或特色符号 (如 🎯, 🌳, 💾, 🔒, 🚩, 🗑️ 等)
   const emojiMatch = rawMsg.match(/^(\p{Extended_Pictographic}|\uFE0F|[★☆⚡⚠️✅❌ℹ️])+[\s·]*/u);
   
-  let iconHtml = "";
-  let textHtml = "";
+  let iconStr = "";
+  let restText = rawMsg;
 
   if (emojiMatch) {
-    const iconStr = emojiMatch[0].trim();
-    const restText = rawMsg.slice(emojiMatch[0].length).trim();
-    iconHtml = `<span class="apple-toast-icon">${iconStr}</span>`;
-    textHtml = `<span class="apple-toast-text">${escapeHtml(restText)}</span>`;
-  } else {
-    textHtml = `<span class="apple-toast-text">${escapeHtml(rawMsg)}</span>`;
+    iconStr = emojiMatch[0].trim();
+    restText = rawMsg.slice(emojiMatch[0].length).trim();
   }
 
   clearTimeout(activeToastTimer);
 
-  activeToastElement.innerHTML = `${iconHtml}${textHtml}`;
+  activeToastElement.textContent = "";
+  if (iconStr) {
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "apple-toast-icon";
+    iconSpan.textContent = iconStr;
+    activeToastElement.appendChild(iconSpan);
+  }
+  const textSpan = document.createElement("span");
+  textSpan.className = "apple-toast-text";
+  textSpan.textContent = restText;
+  activeToastElement.appendChild(textSpan);
+
   activeToastElement.classList.remove("hidden", "fade-out");
 
   // 强制回流以重新触发完整的 Apple 动力学弹簧曲线
@@ -63,7 +70,9 @@ export function showToast(message, duration = 2200) {
 let activeDialogCleanup = null;
 function mountDialog(renderHtml, onAttach) {
   return new Promise(resolve => {
-    if (activeDialogCleanup) activeDialogCleanup();
+    if (activeDialogCleanup) {
+      try { activeDialogCleanup(); } catch {}
+    }
     const overlay = document.getElementById("apple-system-dialog-overlay");
     if (!overlay) return resolve(null);
 
@@ -75,6 +84,7 @@ function mountDialog(renderHtml, onAttach) {
       if (finished) return;
       finished = true;
       window.removeEventListener("keydown", handleKeyDown, true);
+      overlay.removeEventListener("click", handleOverlayClick, true);
       overlay.classList.add("hidden");
       overlay.innerHTML = "";
       activeDialogCleanup = null;
@@ -92,7 +102,23 @@ function mountDialog(renderHtml, onAttach) {
       }
     };
 
+    const handleOverlayClick = (e) => {
+      const confirmBtn = e.target.closest("#dialog-btn-confirm");
+      const cancelBtn = e.target.closest("#dialog-btn-cancel");
+      if (confirmBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const input = overlay.querySelector("#dialog-input");
+        cleanup(input ? input.value : true);
+      } else if (cancelBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup(false);
+      }
+    };
+
     window.addEventListener("keydown", handleKeyDown, true);
+    overlay.addEventListener("click", handleOverlayClick, true);
     activeDialogCleanup = () => cleanup(null);
     onAttach(overlay, cleanup);
   });

@@ -1,4 +1,17 @@
-.home-view { display: flex; width: 100vw; height: 100vh; background: #f1f5f9; z-index: 10; position: relative; }
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. 若在 git 仓库中，优先精确检出被污染的样式文件
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  git checkout HEAD -- src/css/home.css src/css/workspace.css || true
+fi
+
+# 2. 无论 git 是否可用，用 Python 写入 100% 原版干净的 home.css
+python3 - <<'PY'
+from pathlib import Path
+
+home_css = Path("src/css/home.css")
+home_content = """.home-view { display: flex; width: 100vw; height: 100vh; background: #f1f5f9; z-index: 10; position: relative; }
 .home-sidebar { width: 240px; background: #ffffff; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; padding: 20px 14px; }
 .sidebar-header { 
   display: flex; 
@@ -242,3 +255,164 @@ body:has(#home-view:not(.hidden)) #notes-drawer {
 [data-theme="dark"] .apple-custom-trigger-text { color: #f8fafc !important; }
 [data-theme="dark"] .apple-custom-dropdown { background: rgba(24, 31, 44, 0.98); border-color: rgba(255, 255, 255, 0.14); }
 [data-theme="dark"] .apple-custom-option { color: #f8fafc; }
+"""
+home_css.write_text(home_content, encoding="utf-8")
+print("HOME_CSS RESTORED")
+
+# 3. 干净清除 workspace.css 中的异常类
+ws_css = Path("src/css/workspace.css")
+ws_text = ws_css.read_text(encoding="utf-8")
+ws_text = ws_text.replace(
+"""/* 🌟 工作区拟物超椭圆画布升降展开 (Sheet Emerge Physics) */
+.workspace-view.workspace-sheet-enter {
+  animation: workspaceSheetEnter 0.38s cubic-bezier(0.16, 1, 0.28, 1.02) forwards;
+  pointer-events: auto;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.26);
+}
+.workspace-view.workspace-sheet-leave {
+  animation: workspaceSheetLeave 0.28s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes workspaceSheetEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(52px) scale(0.965);
+    border-radius: 26px;
+  }
+  75% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.002);
+    border-radius: 6px;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+@keyframes workspaceSheetLeave {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    border-radius: 0;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(42px) scale(0.965);
+    border-radius: 22px;
+  }
+}""", ""
+)
+
+# 确保 .workspace-view 为绝对干净的原生相对布局
+ws_text = ws_text.replace(
+""".workspace-view {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  overflow: hidden;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  transform-origin: center center;
+}""",
+""".workspace-view {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  overflow: hidden;
+  position: relative;
+}"""
+)
+ws_css.write_text(ws_text, encoding="utf-8")
+print("WORKSPACE_CSS RESTORED")
+
+# 4. 彻底还原 main.js 中的 showWorkspace 与 showHome 为无延迟、无动效类的纯粹原生切换
+main_js = Path("src/main.js")
+main_text = main_js.read_text(encoding="utf-8")
+
+# 移除残留的 viewTransitionTimer 声明
+if "let viewTransitionTimer = null;\n\n" in main_text:
+    main_text = main_text.replace("let viewTransitionTimer = null;\n\n", "")
+
+clean_functions = """export function showWorkspace() {
+  if (state.tabs.length === 0) createNewTab();
+  if (homeView) homeView.classList.add("hidden");
+  if (workspaceView) workspaceView.classList.remove("hidden");
+  document.querySelector(".workspace-body-layout")?.classList.toggle("sidebar-open", !document.getElementById("format-sidebar")?.classList.contains("collapsed"));
+
+  const cur = getActiveTab();
+  if (cur) {
+    if (cur.camera && cur.camera.scale) {
+      camera.transform.x = cur.camera.x;
+      camera.transform.y = cur.camera.y;
+      camera.transform.scale = cur.camera.scale;
+    }
+    applyCanvasThemeToBody(cur.canvasBgColor || "studio-white", cur.canvasBgPattern || "dots");
+    if (cur.isEncrypted && cur._isLocked) {
+      showLockScreen(cur);
+    } else {
+      hideLockScreen();
+    }
+  }
+
+  resizeCanvas(true);
+  renderApp();
+  requestAnimationFrame(() => {
+    resizeCanvas(true);
+    renderApp();
+    import("./js/render/minimap.js").then(m => {
+      m.updateMinimap();
+      m.syncMinimapViewportBox();
+    });
+  });
+  syncInspectorUi();
+  updateSecurityDockStatus();
+}
+
+export function showHome() {
+  const minimapBox = document.getElementById("minimap-viewport-box");
+  if (minimapBox) minimapBox.style.display = "none";
+  const cur = getActiveTab();
+  if (cur) {
+    cur.camera = { ...camera.transform };
+    if (!cur._isLocked && cur.filePath) {
+      recordRecentDoc(cur.title, cur.mindData, cur.layoutStructure, cur.filePath, {
+        colorPalette: cur.colorPalette,
+        lineStyle: cur.lineStyle,
+        boxStyle: cur.boxStyle,
+        canvasBgColor: cur.canvasBgColor,
+        canvasBgPattern: cur.canvasBgPattern
+      }, cur.isEncrypted, cur.camera);
+    }
+  }
+  hideLockScreen();
+  closeNotesDrawer();
+
+  if (workspaceView) workspaceView.classList.add("hidden");
+  if (homeView) homeView.classList.remove("hidden");
+  renderHomeHub(renderApp, showWorkspace);
+}"""
+
+import re
+# 替换任何版本的 showWorkspace / showHome 定义
+pattern = r'export function showWorkspace\([^\)]*\)\s*\{[\s\S]*?renderHomeHub\(renderApp, showWorkspace\);\s*\}'
+if re.search(pattern, main_text):
+    main_text = re.sub(pattern, clean_functions, main_text)
+    # 保证启动时也是纯净调用
+    main_text = main_text.replace("showHome(false);", "showHome();")
+    main_js.write_text(main_text, encoding="utf-8")
+    print("MAIN_JS RESTORED")
+else:
+    raise SystemExit("failed to locate showWorkspace/showHome block in main.js")
+
+PY
+
+echo "RESTORATION COMPLETE"

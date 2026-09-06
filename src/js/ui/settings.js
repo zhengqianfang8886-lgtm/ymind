@@ -1,3 +1,4 @@
+import { checkForUpdates, APP_VERSION } from "./updater.js";
 import { COLOR_PALETTES, CANVAS_THEMES, CANVAS_PATTERNS } from "../data/palettes.js";
 import { getGlobalSettings, saveGlobalSettings, getDefaultSettings } from "../core/state.js";
 import { showToast, escapeHtml } from "./dialog.js";
@@ -213,6 +214,11 @@ export async function syncSettingsForm() {
 
   configs.forEach(([id, items, val]) => createCustomSelect(id, [{ items }], val));
 
+  const repoInput = document.getElementById("setting-github-repo");
+  if (repoInput) repoInput.value = s.githubRepo || "lfw/ymind-tauri";
+  const verLabel = document.getElementById("label-app-version");
+  if (verLabel) verLabel.innerText = "v" + APP_VERSION;
+
   if (!scannedFontsCache) {
     const fonts = await scanSystemFonts();
     applyFontOptions(fonts, s.fontEn, s.fontZh);
@@ -260,6 +266,10 @@ export function initSettingsViewEvents(renderApp) {
   const btnReset = document.getElementById("btn-page-settings-reset");
   const btnScan = document.getElementById("btn-scan-local-fonts");
 
+  document.getElementById("btn-check-update")?.addEventListener("click", () => {
+    checkForUpdates(true);
+  });
+
   btnScan?.addEventListener("click", async () => {
     const txt = document.getElementById("txt-scan-fonts");
     if (txt) txt.innerText = "正在扫描...";
@@ -283,6 +293,7 @@ export function initSettingsViewEvents(renderApp) {
       canvasBgColor: customSelectRegistry.get("wrap-setting-default-bg-color")?.getValue() || "studio-white",
       canvasBgPattern: customSelectRegistry.get("wrap-setting-default-bg-pattern")?.getValue() || "dots",
       autoSaveInterval: customSelectRegistry.get("wrap-setting-auto-save")?.getValue() || "30",
+      githubRepo: document.getElementById("setting-github-repo")?.value.trim() || "lfw/ymind-tauri",
       focusFollowMode: customSelectRegistry.get("wrap-setting-focus-follow")?.getValue() || "smooth"
     };
 

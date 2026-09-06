@@ -92,7 +92,7 @@ export async function serializeTabToPackage(tab) {
       canvasBgColor: tab?.canvasBgColor || "studio-white",
       canvasBgPattern: tab?.canvasBgPattern || "dots",
       mindData: isEncrypted ? null : finalPayload,
-      versions: isEncrypted ? [] : (tab?.versions || []),
+      versions: isEncrypted ? [] : (tab?.versions || []).slice(0, 10),
       encryptedVault: isEncrypted ? encryptedPackage : null
     },
     filenameWithExt: presetFilename + ".ymind",
@@ -183,12 +183,17 @@ export function normalizeMindNode(n) {
     progress: progress,
     tags: tags.map(String),
     note: data.note || n.note || data.notes || n.notes || "",
+    link: data.link || n.link || data.url || n.url || null,
+    todo: Boolean(data.todo || n.todo),
+    done: Boolean(data.done || n.done),
+    dueDate: data.dueDate || n.dueDate || null,
     collapsed: Boolean(data.collapsed || n.collapsed || data.expand === false),
     fontSize: data.fontSize || n.fontSize || null,
     fontWeight: data.fontWeight || n.fontWeight || null,
     fontStyle: data.fontStyle || n.fontStyle || null,
     textDecoration: data.textDecoration || n.textDecoration || null,
     textColor: data.textColor || n.textColor || null,
+    branchDirection: data.branchDirection || n.branchDirection || null,
     children: children
   };
 }

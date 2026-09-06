@@ -158,6 +158,22 @@ export const COLOR_PALETTES = {
     { border: "#27272a", line: "#3f3f46", badge: "#27272a", bgLight: "#f4f4f5", solid: "#27272a" },
     { border: "#18181b", line: "#3f3f46", badge: "#18181b", bgLight: "#f4f4f5", solid: "#18181b" },
     { border: "#4b5563", line: "#6b7280", badge: "#4b5563", bgLight: "#f9fafb", solid: "#4b5563" }
+  ]},
+  "architect-graphite": { id: "architect-graphite", cat: "classic", name: "📐 极简石墨单色 (Graphite)", root: { bg: "#1e242d", border: "#0f172a", text: "#ffffff" }, branches: [
+    { border: "#374151", line: "#374151", badge: "#1f2937", bgLight: "#f9fafb", solid: "#374151" },
+    { border: "#4b5563", line: "#4b5563", badge: "#374151", bgLight: "#f3f4f6", solid: "#4b5563" },
+    { border: "#64748b", line: "#64748b", badge: "#475569", bgLight: "#f8fafc", solid: "#64748b" },
+    { border: "#475569", line: "#475569", badge: "#334155", bgLight: "#f1f5f9", solid: "#475569" },
+    { border: "#52525b", line: "#52525b", badge: "#3f3f46", bgLight: "#fafafa", solid: "#52525b" },
+    { border: "#3f3f46", line: "#3f3f46", badge: "#27272a", bgLight: "#f4f4f5", solid: "#3f3f46" }
+  ]},
+  "blueprint-cad": { id: "blueprint-cad", cat: "classic", name: "🗺️ 建筑蓝图深浅阶 (Blueprint)", root: { bg: "#034078", border: "#001f54", text: "#ffffff" }, branches: [
+    { border: "#0077b6", line: "#0077b6", badge: "#023e8a", bgLight: "#f0f9ff", solid: "#0077b6" },
+    { border: "#0096c7", line: "#0096c7", badge: "#0077b6", bgLight: "#e0f2fe", solid: "#0096c7" },
+    { border: "#0284c7", line: "#0284c7", badge: "#0369a1", bgLight: "#f0f9ff", solid: "#0284c7" },
+    { border: "#0369a1", line: "#0369a1", badge: "#075985", bgLight: "#f0f9ff", solid: "#0369a1" },
+    { border: "#00b4d8", line: "#00b4d8", badge: "#0096c7", bgLight: "#e0f7fa", solid: "#00b4d8" },
+    { border: "#48cae4", line: "#48cae4", badge: "#0077b6", bgLight: "#ecfeff", solid: "#48cae4" }
   ]}
 };
 

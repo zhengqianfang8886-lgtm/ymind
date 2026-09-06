@@ -1,7 +1,7 @@
 #svg-infinite-bg { fill: transparent !important; }
 #viewport {
   background-color: var(--canvas-bg, #f8fafc) !important;
-  transition: background-color 0.2s ease;
+  /* transition: background-color removed for instant response */
 }
 
 /* 🎨 15 款精研底色系统 */

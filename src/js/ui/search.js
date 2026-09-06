@@ -1,4 +1,4 @@
-import { state, getAncestors, findNode } from "../core/state.js";
+import { state, getAncestors, findNode, getActiveDocumentContext } from "../core/state.js";
 import { ensureNodeVisible } from "../core/camera.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 
@@ -58,7 +58,8 @@ function performSearch() {
     if (node.children) node.children.forEach(searchTree);
   }
 
-  searchTree(state.mindData);
+  const docCtx = getActiveDocumentContext();
+  if (docCtx?.mindData) searchTree(docCtx.mindData);
 
   if (matchedNodeIds.length > 0) {
     currentMatchIndex = 0;
@@ -76,23 +77,26 @@ function updateSearchCount() {
 }
 
 function focusCurrentMatch() {
+  const docCtx = getActiveDocumentContext();
+  if (!docCtx || !docCtx.mindData) return;
+
   if (currentMatchIndex >= 0 && currentMatchIndex < matchedNodeIds.length) {
     const targetId = matchedNodeIds[currentMatchIndex];
     // 自动沿途展开父级折叠节点
-    const ancestors = getAncestors(targetId, state.mindData);
+    const ancestors = getAncestors(targetId, docCtx.mindData);
     if (ancestors) {
       ancestors.forEach(a => {
         if (a.id !== targetId && a.collapsed) {
           a.collapsed = false;
-          state.isLayoutDirty = true;
+          docCtx.isLayoutDirty = true;
         }
       });
     }
 
-    state.selectedIds = new Set([targetId]);
+    docCtx.selectNode(targetId);
     bus.emit(EVENTS.RENDER_APP);
 
-    const node = findNode(targetId, state.mindData);
+    const node = findNode(targetId, docCtx.mindData);
     if (node) ensureNodeVisible(node, true);
   }
 }

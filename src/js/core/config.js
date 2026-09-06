@@ -3,6 +3,8 @@ import { bus, EVENTS } from "./event-bus.js";
 const SETTINGS_KEY = "YMIND_PRO_GLOBAL_SETTINGS";
 let cachedGlobalSettings = null;
 
+export const APP_VERSION = "3.0.0";
+
 export function getDefaultSettings() {
   return {
     fontEn: "-apple-system, BlinkMacSystemFont, \"SF Pro Text\", \"Helvetica Neue\", sans-serif",
@@ -16,7 +18,9 @@ export function getDefaultSettings() {
     canvasBgColor: "studio-white",
     canvasBgPattern: "dots",
     focusFollowMode: "smooth",
-    autoSaveInterval: "30"
+    autoSaveInterval: "30",
+    autoCheckUpdate: true,
+    githubRepo: "lfw/ymind-tauri"
   };
 }
 
@@ -39,8 +43,10 @@ export function saveGlobalSettings(s) {
 }
 
 export function applyGlobalTypography(s = getGlobalSettings()) {
-  document.documentElement.style.setProperty("--font-en", s.fontEn);
-  document.documentElement.style.setProperty("--font-zh", s.fontZh);
+  if (typeof document !== "undefined" && document.documentElement) {
+    document.documentElement.style.setProperty("--font-en", s.fontEn);
+    document.documentElement.style.setProperty("--font-zh", s.fontZh);
+  }
 }
 
 export function applyAppTheme(theme = getGlobalSettings().appTheme || "light") {
@@ -67,7 +73,7 @@ export function applyAppTheme(theme = getGlobalSettings().appTheme || "light") {
   if (labelHome) labelHome.innerText = isDark ? "浅色外观" : "深色外观";
 }
 
-if (window.matchMedia) {
+if (typeof window !== "undefined" && window.matchMedia) {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     const s = getGlobalSettings();
     if (s.appTheme === "auto" || s.appTheme === "system") applyAppTheme("auto");

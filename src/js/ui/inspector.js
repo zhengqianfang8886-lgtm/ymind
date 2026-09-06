@@ -1,24 +1,48 @@
 import { resizeCanvas } from "../render/render.js";
-import { getActiveTab, saveSnapshot, getPrimarySelectedNode, findNode, state } from "../core/state.js";
+import { getActiveTab, getPrimarySelectedNode, findNode, state, getActiveDocumentContext } from "../core/state.js";
+import { executeCommand, executeCompoundCommand, COMMANDS } from "../core/history.js";
 import { invalidateFontCache } from "../geometry/layout.js";
 import { COLOR_PALETTES, BG_COLOR_MAP } from "../data/palettes.js";
 import { bus, EVENTS } from "../core/event-bus.js";
+import { smartAdaptiveCenter } from "../core/camera.js";
 
-function applyNodeStyle(updateFn) {
-  const targetIds = (state.selectedIds && state.selectedIds.size > 0)
-    ? Array.from(state.selectedIds)
-    : [getPrimarySelectedNode()?.id || state.focusedRootId || state.mindData?.id].filter(Boolean);
+function applyNodeStyle(updateFn, attrKeys = ['fontSize', 'fontWeight', 'fontStyle', 'textDecoration', 'textColor']) {
+  const docCtx = getActiveDocumentContext();
+  if (!docCtx || !docCtx.mindData) return;
+
+  const targetIds = (docCtx.selectedIds && docCtx.selectedIds.size > 0)
+    ? Array.from(docCtx.selectedIds)
+    : [docCtx.primarySelectedNode?.id || docCtx.focusedRootId || docCtx.mindData.id].filter(Boolean);
 
   if (targetIds.length === 0) return;
 
+  const subCommands = [];
   targetIds.forEach(id => {
-    const node = findNode(id, state.mindData);
-    if (node) updateFn(node);
+    const node = findNode(id, docCtx.mindData);
+    if (node) {
+      const oldAttrs = {};
+      attrKeys.forEach(k => { oldAttrs[k] = node[k]; });
+      updateFn(node);
+      const newAttrs = {};
+      attrKeys.forEach(k => { newAttrs[k] = node[k]; });
+
+      subCommands.push({
+        type: COMMANDS.UPDATE_ATTRS,
+        nodeId: node.id,
+        oldAttrs,
+        newAttrs
+      });
+    }
   });
 
+  if (subCommands.length === 1) {
+    docCtx.executeCommand(subCommands[0], false);
+  } else if (subCommands.length > 1) {
+    docCtx.executeCompoundCommand(subCommands, false);
+  }
+
   invalidateFontCache();
-  state.isLayoutDirty = true;
-  saveSnapshot();
+  docCtx.isLayoutDirty = true;
   syncInspectorUi();
   resizeCanvas(true);
   bus.emit(EVENTS.RENDER_APP);
@@ -65,9 +89,9 @@ export function syncInspectorUi() {
     btnStrike?.classList.remove("active");
     document.querySelectorAll("#node-text-color-options .bg-color-swatch").forEach(c => c.classList.remove("active"));
   } else {
-    const isRoot = primaryNode.id === (state.focusedRootId || state.mindData?.id);
+    const isRoot = primaryNode.id === (tab.focusedRootId || tab.mindData?.id);
     const curSize = primaryNode.fontSize ? String(parseInt(primaryNode.fontSize, 10)) : (isRoot ? "16" : "14");
-    
+
     // 粗体反显
     const isBold = primaryNode.fontWeight === "700" || primaryNode.fontWeight === "bold" || (isRoot && !primaryNode.fontWeight);
     btnBold?.classList.toggle("active", Boolean(isBold));
@@ -111,7 +135,7 @@ export function renderPaletteGrid() {
   if (!grid) return;
 
   const curPalette = getActiveTab()?.colorPalette || "apple-classic";
-  
+
   grid.innerHTML = Object.values(COLOR_PALETTES).map(p => {
     const cat = p.cat || "classic";
     const barHtml = (p.branches || []).slice(0, 6).map(b => `<span style="background:${b.line}"></span>`).join("");
@@ -127,11 +151,19 @@ export function renderPaletteGrid() {
   grid.querySelectorAll(".palette-chip").forEach(chip => {
     chip.onclick = (e) => {
       e.stopPropagation();
-      const tab = getActiveTab();
-      if (tab) {
-        tab.colorPalette = chip.dataset.palette;
-        state.isLayoutDirty = true;
-        saveSnapshot();
+      const docCtx = getActiveDocumentContext();
+      const tab = docCtx?.tab || getActiveTab();
+      if (tab && tab.colorPalette !== chip.dataset.palette) {
+        grid.querySelectorAll(".palette-chip").forEach(c => c.classList.remove("active"));
+        chip.classList.add("active");
+
+        executeCommand({
+          type: COMMANDS.UPDATE_CONFIG,
+          prop: "colorPalette",
+          oldVal: tab.colorPalette,
+          newVal: chip.dataset.palette
+        });
+        if (docCtx) docCtx.markLayoutDirty(null);
         syncInspectorUi();
         bus.emit(EVENTS.RENDER_APP);
       }
@@ -187,13 +219,20 @@ export function initInspectorEvents() {
   document.querySelectorAll("#menu-structures .struct-card").forEach(card => {
     card.onclick = (e) => {
       e.stopPropagation();
-      const tab = getActiveTab();
-      if (tab) {
-        tab.layoutStructure = card.dataset.structure;
-        state.isLayoutDirty = true;
-        saveSnapshot();
+      const docCtx = getActiveDocumentContext();
+      const tab = docCtx?.tab || getActiveTab();
+      if (tab && tab.layoutStructure !== card.dataset.structure) {
+        executeCommand({
+          type: COMMANDS.UPDATE_CONFIG,
+          prop: "layoutStructure",
+          oldVal: tab.layoutStructure,
+          newVal: card.dataset.structure
+        });
+        if (docCtx) docCtx.markLayoutDirty(null);
         syncInspectorUi();
         bus.emit(EVENTS.RENDER_APP);
+        // 🌟 骨架重塑时相机智能联动回正，流体形变与镜头推移同频共振
+        smartAdaptiveCenter(null, true, docCtx);
       }
     };
   });
@@ -223,13 +262,25 @@ export function initInspectorEvents() {
     document.querySelectorAll(selector).forEach(el => {
       el.onclick = (e) => {
         e.stopPropagation();
-        const tab = getActiveTab();
-        if (tab) {
-          tab[prop] = el.dataset[dataKey];
-          if (prop.startsWith("canvasBg")) applyCanvasThemeToBody(tab.canvasBgColor, tab.canvasBgPattern || "dots");
-          saveSnapshot();
+        const docCtx = getActiveDocumentContext();
+        const tab = docCtx?.tab || getActiveTab();
+        if (tab && tab[prop] !== el.dataset[dataKey]) {
+          // 🌟 0ms 瞬间高亮当前点击项，彻底消除按键延迟感
+          el.parentElement.querySelectorAll(".style-btn, .bg-color-swatch, .bg-pattern-card").forEach(b => b.classList.remove("active"));
+          el.classList.add("active");
+
+          executeCommand({
+            type: COMMANDS.UPDATE_CONFIG,
+            prop: prop,
+            oldVal: tab[prop],
+            newVal: el.dataset[dataKey]
+          });
+          if (prop.startsWith("canvasBg")) {
+            applyCanvasThemeToBody(tab.canvasBgColor, tab.canvasBgPattern || "dots");
+          }
           syncInspectorUi();
-          bus.emit(EVENTS.RENDER_APP);
+          // 🌟 核心提速：仅快速重绘画布图层，跳过耗时的几何排版、四叉树重建与 DOM 标签栏刷新
+          bus.emit(EVENTS.RENDER_CANVAS_ONLY);
         }
       };
     });

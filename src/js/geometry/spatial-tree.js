@@ -1,6 +1,5 @@
 export class QuadTree {
-  // 🌟 容量提升为 32，最大深度提高到 9，完美应对 20,000 节点的大规模空间索引
-  constructor(boundary = { x: -80000, y: -80000, width: 160000, height: 160000 }, capacity = 32, depth = 0, maxDepth = 9) {
+  constructor(boundary = { x: -80000, y: -80000, width: 160000, height: 160000 }, capacity = 16, depth = 0, maxDepth = 6) {
     this.boundary = boundary;
     this.capacity = capacity;
     this.depth = depth;
@@ -23,44 +22,76 @@ export class QuadTree {
     this.se = new QuadTree({ x: x + w, y: y + h, width: w, height: h }, this.capacity, nextDepth, this.maxDepth);
     this.divided = true;
 
-    const oldItems = this.items;
-    this.items = [];
-    for (let i = 0; i < oldItems.length; i++) this.insert(oldItems[i]);
+    // 重新分配既有条目：仅能完全纳入单一子象限者下沉，跨轴者保留在当前节点
+    const remainingItems = [];
+    for (let i = 0; i < this.items.length; i++) {
+      const it = this.items[i];
+      const target = this._getContainingQuadrant(it);
+      if (target) {
+        target.insert(it);
+      } else {
+        remainingItems.push(it);
+      }
+    }
+    this.items = remainingItems;
+  }
+
+  _getContainingQuadrant(item) {
+    const midX = this.boundary.x + this.boundary.width / 2;
+    const midY = this.boundary.y + this.boundary.height / 2;
+    const itRight = item.x + (item.width || 0);
+    const itBottom = item.y + (item.height || 0);
+
+    const inTop = itBottom <= midY;
+    const inBottom = item.y >= midY;
+    const inLeft = itRight <= midX;
+    const inRight = item.x >= midX;
+
+    if (inTop && inLeft) return this.nw;
+    if (inTop && inRight) return this.ne;
+    if (inBottom && inLeft) return this.sw;
+    if (inBottom && inRight) return this.se;
+    return null;
   }
 
   insert(item) {
     if (!this.intersects(this.boundary, item)) return false;
-    if (!this.divided) {
-      if (this.items.length < this.capacity || this.depth >= this.maxDepth) {
-        this.items.push(item);
-        return true;
-      }
+
+    if (this.divided) {
+      const target = this._getContainingQuadrant(item);
+      if (target) return target.insert(item);
+      this.items.push(item);
+      return true;
+    }
+
+    this.items.push(item);
+
+    if (this.items.length > this.capacity && this.depth < this.maxDepth) {
       this.subdivide();
     }
-    const inNW = this.nw.insert(item);
-    const inNE = this.ne.insert(item);
-    const inSW = this.sw.insert(item);
-    const inSE = this.se.insert(item);
-    return inNW || inNE || inSW || inSE;
+    return true;
   }
 
   queryRange(range, found = new Set()) {
     if (!this.intersects(this.boundary, range)) return found;
+
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       if (this.intersects(it, range)) found.add(it.id);
     }
+
     if (this.divided) {
-      this.nw.queryRange(range, found);
-      this.ne.queryRange(range, found);
-      this.sw.queryRange(range, found);
-      this.se.queryRange(range, found);
+      if (this.nw.intersects(this.nw.boundary, range)) this.nw.queryRange(range, found);
+      if (this.ne.intersects(this.ne.boundary, range)) this.ne.queryRange(range, found);
+      if (this.sw.intersects(this.sw.boundary, range)) this.sw.queryRange(range, found);
+      if (this.se.intersects(this.se.boundary, range)) this.se.queryRange(range, found);
     }
     return found;
   }
 
   queryItems(range, found = [], seen = new Set()) {
     if (!this.intersects(this.boundary, range)) return found;
+
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       if (!seen.has(it.id) && this.intersects(it, range)) {
@@ -68,11 +99,12 @@ export class QuadTree {
         found.push(it);
       }
     }
+
     if (this.divided) {
-      this.nw.queryItems(range, found, seen);
-      this.ne.queryItems(range, found, seen);
-      this.sw.queryItems(range, found, seen);
-      this.se.queryItems(range, found, seen);
+      if (this.nw.intersects(this.nw.boundary, range)) this.nw.queryItems(range, found, seen);
+      if (this.ne.intersects(this.ne.boundary, range)) this.ne.queryItems(range, found, seen);
+      if (this.sw.intersects(this.sw.boundary, range)) this.sw.queryItems(range, found, seen);
+      if (this.se.intersects(this.se.boundary, range)) this.se.queryItems(range, found, seen);
     }
     return found;
   }
@@ -85,14 +117,15 @@ export class QuadTree {
       if (isVisibleFn && !isVisibleFn(item.id)) continue;
       if (wx >= item.x - pad && wx <= item.x + item.width + pad &&
           wy >= item.y - pad && wy <= item.y + item.height + pad) {
-        return item.node;
+        return item.node || item;
       }
     }
     return null;
   }
 
-  pickCollapseBadge(wx, wy, focusedRootId, isVisibleFn = null) {
-    const searchBox = { x: wx - 18, y: wy - 18, width: 36, height: 36 };
+  pickCollapseBadge(wx, wy, focusedRootId, isVisibleFn = null, hitRadius = 14) {
+    const pad = Math.max(14, hitRadius);
+    const searchBox = { x: wx - pad, y: wy - pad, width: pad * 2, height: pad * 2 };
     const candidates = this.queryItems(searchBox);
     for (let i = 0; i < candidates.length; i++) {
       const n = candidates[i].node;
@@ -100,7 +133,7 @@ export class QuadTree {
       if (n.children && n.children.length > 0 && n.id !== focusedRootId) {
         const bx = (n.branchDirection === "left") ? n.x : (n.x + n.width);
         const by = n.y + n.height / 2;
-        if (Math.hypot(wx - bx, wy - by) <= 12) return n;
+        if (Math.hypot(wx - bx, wy - by) <= pad) return n;
       }
     }
     return null;
@@ -112,6 +145,29 @@ export class QuadTree {
     const r2x2 = r2.x + (r2.width || 0);
     const r2y2 = r2.y + (r2.height || 0);
     return !(r1x2 < r2.x || r1.x > r2x2 || r1y2 < r2.y || r1.y > r2y2);
+  }
+
+  remove(id) {
+    let removed = false;
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      if (this.items[i].id === id) {
+        this.items.splice(i, 1);
+        removed = true;
+      }
+    }
+    if (this.divided) {
+      const rNW = this.nw.remove(id);
+      const rNE = this.ne.remove(id);
+      const rSW = this.sw.remove(id);
+      const rSE = this.se.remove(id);
+      removed = removed || rNW || rNE || rSW || rSE;
+    }
+    return removed;
+  }
+
+  update(item) {
+    this.remove(item.id);
+    return this.insert(item);
   }
 
   clear() {

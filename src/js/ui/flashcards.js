@@ -1,4 +1,4 @@
-import { state } from "../core/state.js";
+import { state, getActiveDocumentContext } from "../core/state.js";
 import { showToast, escapeHtml } from "./dialog.js";
 
 let cardDeck = [];
@@ -6,10 +6,22 @@ let currentCardIndex = 0;
 let stats = { mastered: 0, review: 0, forgot: 0 };
 
 export function toggleRecallMode(renderApp) {
-  state.isRecallMode = !state.isRecallMode;
+  const docCtx = getActiveDocumentContext();
+  if (!docCtx) return;
+  docCtx.isRecallMode = !docCtx.isRecallMode;
+
+  // 退出模式时重置所有节点的临时揭晓标记，保证下次进入时全部重新遮罩
+  if (!docCtx.isRecallMode && docCtx.mindData) {
+    function resetMasks(n) {
+      delete n._unmasked;
+      if (n.children) n.children.forEach(resetMasks);
+    }
+    resetMasks(docCtx.mindData);
+  }
+
   const btn = document.getElementById("btn-active-recall");
-  if (btn) btn.classList.toggle("active-mode", !!state.isRecallMode);
-  showToast(state.isRecallMode ? "🎭 记忆测试掩码已开启：点击遮罩节点可即时揭晓" : "👁️ 已退出记忆测试模式");
+  if (btn) btn.classList.toggle("active-mode", Boolean(docCtx.isRecallMode));
+  showToast(docCtx.isRecallMode ? "🎭 记忆遮罩已开启：单击节点揭晓 / 再次单击重新遮盖" : "👁️ 已退出记忆测试模式");
   renderApp();
 }
 
@@ -43,7 +55,8 @@ export function openFlashcardModal() {
   const modal = document.getElementById("apple-flashcards-modal");
   if (!modal) return;
 
-  cardDeck = buildFlashcardDeck(state.mindData);
+  const docCtx = getActiveDocumentContext();
+  cardDeck = buildFlashcardDeck(docCtx?.mindData);
   if (cardDeck.length === 0) {
     showToast("⚠️ 当前导图没有足够的分支节点可供生成抽认卡");
     return;

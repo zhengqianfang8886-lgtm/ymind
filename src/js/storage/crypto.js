@@ -69,23 +69,35 @@ export async function deriveKeyWithAccurateMetadata(password, salt) {
 }
 
 export async function encryptMindPayload(mindData, password, hint = "") {
+  const cleanHint = hint ? hint.trim() : "";
+  // 1. 优先下沉到 Tauri Rust 原生零内存暴露流水线 (Rust 端 zeroize 物理擦除)
+  try {
+    const nativeVault = await invokeTauri("native_encrypt_mindmap", {
+      data: mindData,
+      password: String(password),
+      hint: cleanHint
+    });
+    if (nativeVault && nativeVault.payloadCipher) return nativeVault;
+  } catch {}
+
+  // 2. 纯前端 WebCrypto 降级通道：严格控制明文生存期并立即清空 TypedArray
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const dekRaw = crypto.getRandomValues(new Uint8Array(32));
   const payloadIv = crypto.getRandomValues(new Uint8Array(12));
   const dekIv = crypto.getRandomValues(new Uint8Array(12));
 
-  // 实事求是获取真实派生出的 KDF 类型
   const { keyBytes: kekBytes, kdf, format } = await deriveKeyWithAccurateMetadata(password, salt);
   const aad = enc.encode(format);
 
   const kekKey = await crypto.subtle.importKey("raw", kekBytes, { name: "AES-GCM" }, false, ["encrypt"]);
   const dekKey = await crypto.subtle.importKey("raw", dekRaw, { name: "AES-GCM" }, false, ["encrypt"]);
 
+  const rawBytes = enc.encode(JSON.stringify(mindData));
   const payloadCiphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv: payloadIv, additionalData: aad },
     dekKey,
-    enc.encode(JSON.stringify(mindData))
+    rawBytes
   );
 
   const wrappedDek = await crypto.subtle.encrypt(
@@ -96,6 +108,7 @@ export async function encryptMindPayload(mindData, password, hint = "") {
 
   wipeMemory(kekBytes);
   wipeMemory(dekRaw);
+  wipeMemory(rawBytes);
 
   return {
     format: format,
@@ -104,7 +117,7 @@ export async function encryptMindPayload(mindData, password, hint = "") {
     timeCost: 3,
     memoryCost: 4096,
     parallelism: 4,
-    hint: hint ? hint.trim() : "",
+    hint: cleanHint,
     salt: arrayBufferToBase64(salt),
     dekIv: arrayBufferToBase64(dekIv),
     wrappedDek: arrayBufferToBase64(wrappedDek),
@@ -117,6 +130,18 @@ export async function encryptMindPayload(mindData, password, hint = "") {
 export async function decryptMindPayload(encryptedPackage, password) {
   if (!encryptedPackage) throw new Error("EMPTY_PACKAGE");
 
+  // 1. 优先下沉到 Tauri Rust 原生解密通道，由 Native 端直接反序列化为模型对象
+  try {
+    const nativeDecrypted = await invokeTauri("native_decrypt_mindmap", {
+      package: encryptedPackage,
+      password: String(password)
+    });
+    if (nativeDecrypted && typeof nativeDecrypted === "object") return nativeDecrypted;
+  } catch (err) {
+    if (String(err).includes("INVALID_PASSWORD")) throw new Error("INVALID_PASSWORD");
+  }
+
+  // 2. 纯前端 WebCrypto 降级解密
   const enc = new TextEncoder();
   const format = encryptedPackage.format || "";
   const kdf = encryptedPackage.kdf || "";
@@ -157,19 +182,42 @@ export async function decryptMindPayload(encryptedPackage, password) {
       }
     }
 
-    if (!kekBytes) throw new Error("KDF_FAILED");
+    if (!kekBytes) {
+      if (kdf === "Argon2id-RFC9106" || format === "YMIND_PRO_VAULT_V3_ARGON2ID") {
+        throw new Error("UNSUPPORTED_ARGON2ID_ENV");
+      }
+      throw new Error("KDF_FAILED");
+    }
 
-    const kekKey = await crypto.subtle.importKey("raw", kekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
-    const unwrappedDekRaw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: dekIv, additionalData: aad }, kekKey, wrappedDek);
-    const dekKey = await crypto.subtle.importKey("raw", unwrappedDekRaw, { name: "AES-GCM" }, false, ["decrypt"]);
-    const decryptedBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: payloadIv, additionalData: aad }, dekKey, payloadCipher);
+    let unwrappedDekRaw;
+    try {
+      const kekKey = await crypto.subtle.importKey("raw", kekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+      unwrappedDekRaw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: dekIv, additionalData: aad }, kekKey, wrappedDek);
+    } catch (e) {
+      wipeMemory(kekBytes);
+      throw new Error("INVALID_PASSWORD");
+    }
+
+    let decryptedBuffer;
+    try {
+      const dekKey = await crypto.subtle.importKey("raw", unwrappedDekRaw, { name: "AES-GCM" }, false, ["decrypt"]);
+      decryptedBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv: payloadIv, additionalData: aad }, dekKey, payloadCipher);
+    } catch (e) {
+      wipeMemory(kekBytes);
+      wipeMemory(new Uint8Array(unwrappedDekRaw));
+      throw new Error("INVALID_PASSWORD");
+    }
 
     wipeMemory(kekBytes);
     wipeMemory(new Uint8Array(unwrappedDekRaw));
 
-    return JSON.parse(new TextDecoder().decode(decryptedBuffer));
+    try {
+      return JSON.parse(new TextDecoder().decode(decryptedBuffer));
+    } catch (e) {
+      throw new Error("CORRUPT_PAYLOAD");
+    }
   } catch (err) {
-    throw new Error("INVALID_PASSWORD");
+    throw err;
   }
 }
 

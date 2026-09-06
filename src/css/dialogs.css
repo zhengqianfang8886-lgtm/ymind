@@ -601,15 +601,30 @@
 .apple-tag.p3 { background: var(--apple-blue); }
 .apple-tag.p4 { background: var(--apple-green); }
 .progress-dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot-0 { background: #94a3b8; }
 .dot-25 { background: var(--apple-blue); }
 .dot-50 { background: var(--apple-orange); }
 .dot-75 { background: #af52de; }
 .dot-100 { background: var(--apple-green); }
 
 /* 🌟 节点属性专属浮层面板 */
-.node-attr-popover { display: none; width: 260px !important; padding: 12px 14px !important; flex-direction: column; gap: 6px; box-sizing: border-box !important; }
-.dropdown-wrapper.active .node-attr-popover { display: flex !important; }
-.dropdown-wrapper:not(.active) .node-attr-popover, .apple-popover.hidden { display: none !important; }
+.node-attr-popover { 
+  display: none; 
+  width: 260px !important; 
+  padding: 12px 14px !important; 
+  flex-direction: column; 
+  gap: 6px; 
+  box-sizing: border-box !important; 
+}
+.dropdown-wrapper.active .node-attr-popover,
+#menu-node-attributes:not(.hidden) { 
+  display: flex !important; 
+}
+.dropdown-wrapper:not(.active) .node-attr-popover, 
+#menu-node-attributes.hidden,
+.apple-popover.hidden { 
+  display: none !important; 
+}
 .popover-section-title { font-size: 11px; font-weight: 700; color: var(--text-tertiary); letter-spacing: 0.03em; margin-bottom: 3px; user-select: none; }
 .attr-quick-icons-row { display: flex !important; align-items: center !important; gap: 6px !important; margin-bottom: 4px !important; width: 100% !important; box-sizing: border-box !important; }
 .attr-icon-chip { width: 28px !important; height: 28px !important; border-radius: 8px !important; -webkit-corner-smoothing: 0.62; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 15px !important; cursor: pointer !important; background: rgba(0, 0, 0, 0.04) !important; transition: all 0.14s cubic-bezier(0.16, 1, 0.3, 1) !important; flex-shrink: 0 !important; }
