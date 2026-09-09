@@ -1,35 +1,23 @@
+import { state, getActiveTab } from "./store.js";
+export { state, getActiveTab } from "./store.js";
 import { saveSessionImmediate, scheduleSessionSave } from "../storage/session.js";
 import { TEMPLATES } from "../data/templates.js";
 import { QuadTree } from "../geometry/spatial-tree.js";
 import { markNodeLayoutDirty } from "../geometry/layout.js";
-import { countNodes, findNode, findParent, getAncestors, sanitizeTreeForHistory } from "./tree-utils.js";
+import { countNodes, findNode, findParent, getAncestors, sanitizeTreeForHistory, walkTree } from "./tree-utils.js";
 import { getGlobalSettings, saveGlobalSettings, getDefaultSettings, applyGlobalTypography } from "./config.js";
 import { canvasMachine, CanvasState } from "../interaction/canvas-machine.js";
 import { executeCommand, executeCompoundCommand, saveSnapshot, undo, redo, COMMANDS } from "./history.js";
 
-export { countNodes, findNode, findParent, getAncestors, sanitizeTreeForHistory };
+export { countNodes, findNode, findParent, getAncestors, sanitizeTreeForHistory, walkTree };
 export { getGlobalSettings, saveGlobalSettings, getDefaultSettings, applyGlobalTypography };
 
-export const state = {
-  tabs: [],
-  activeTabId: null,
-  isZenMode: false,
-  editingNodeId: null,
-  clipboardBranch: null
-};
+
 
 /**
  * @returns {import('../../types').DocumentTab | null}
  */
-export function getActiveTab() {
-  if (!state.tabs || state.tabs.length === 0) return null;
-  let tab = state.tabs.find(t => t.id === state.activeTabId);
-  if (!tab) {
-    tab = state.tabs[0];
-    state.activeTabId = tab.id;
-  }
-  return tab;
-}
+
 
 /**
  * 🌟 核心第一公民：DocumentContext 文档上下文权威载体
@@ -173,6 +161,40 @@ export class DocumentContext {
     return executeCompoundCommand(cmds, apply, this.tab);
   }
 
+  /**
+   * 🌟 统一批量属性更新（收敛样板代码，单操作/多操作自动收敛为原子历史事务）
+   */
+  batchUpdateAttrs(nodeIds, updaterFn, apply = true) {
+    if (!this.mindData) return;
+    const ids = Array.isArray(nodeIds) ? nodeIds : Array.from(nodeIds || []);
+    if (ids.length === 0) return;
+
+    const subCommands = [];
+    ids.forEach(id => {
+      const node = findNode(id, this.mindData);
+      if (!node) return;
+      const patches = updaterFn(node);
+      if (!patches || typeof patches !== "object") return;
+      const oldAttrs = {};
+      for (const k of Object.keys(patches)) {
+        oldAttrs[k] = node[k] !== undefined ? node[k] : null;
+      }
+      subCommands.push({
+        type: COMMANDS.UPDATE_ATTRS,
+        nodeId: node.id,
+        oldAttrs,
+        newAttrs: patches
+      });
+      this.markLayoutDirty(node.id);
+    });
+
+    if (subCommands.length === 1) {
+      this.executeCommand(subCommands[0], apply);
+    } else if (subCommands.length > 1) {
+      this.executeCompoundCommand(subCommands, apply);
+    }
+  }
+
   saveSnapshot() {
     return saveSnapshot(this.tab);
   }
@@ -183,6 +205,56 @@ export class DocumentContext {
 
   redo(cb) {
     return redo(cb, this.tab);
+  }
+
+  
+  /**
+   * 统一事务变更：聚合属性修改并入命令历史栈，彻底杜绝数据双轨撕裂
+   */
+  commitMutation(nodeIds, patchesOrUpdater, recordHistory = true) {
+    if (!this.mindData) return;
+    const ids = Array.isArray(nodeIds) ? nodeIds : (nodeIds instanceof Set ? Array.from(nodeIds) : [nodeIds]);
+    const commands = [];
+
+    ids.forEach(id => {
+      const node = findNode(id, this.mindData);
+      if (!node) return;
+      const patches = typeof patchesOrUpdater === "function" ? patchesOrUpdater(node) : patchesOrUpdater;
+      if (!patches || typeof patches !== "object") return;
+
+      const oldAttrs = {};
+      const newAttrs = {};
+      for (const [k, v] of Object.entries(patches)) {
+        if (node[k] !== v) {
+          oldAttrs[k] = node[k] !== undefined ? node[k] : null;
+          newAttrs[k] = v;
+        }
+      }
+
+      if (Object.keys(newAttrs).length > 0) {
+        commands.push({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: id,
+          oldAttrs,
+          newAttrs
+        });
+        if (['text', 'fontSize', 'fontWeight', 'icon', 'priority', 'tags', 'todo', 'collapsed'].some(k => k in newAttrs)) {
+          this.markLayoutDirty(id);
+        }
+      }
+    });
+
+    if (commands.length === 0) return;
+    if (recordHistory) {
+      if (commands.length === 1) this.executeCommand(commands[0], true);
+      else this.executeCompoundCommand(commands, true);
+    } else {
+      commands.forEach(cmd => {
+        const node = findNode(cmd.nodeId, this.mindData);
+        if (node) Object.assign(node, cmd.newAttrs);
+      });
+    }
+    bus.emit(EVENTS.RENDER_APP);
   }
 
   dispose() {
@@ -279,6 +351,7 @@ export function loadTemplate(templateId) {
   tab.historyIndex = 0;
   delete tab.history;
   tab.isDirty = true;
+  tab._skipAnimation = true;
   tab.spatialIndex = new QuadTree();
   state.isLayoutDirty = true;
   return tab;
@@ -286,7 +359,7 @@ export function loadTemplate(templateId) {
 
 export function createNewTab(templateId = "mindmap-blank", customTitle = null) {
   const tpl = TEMPLATES[templateId] || TEMPLATES["mindmap-blank"];
-  const isDefaultBlank = templateId === "mindmap-blank";
+  const isDefaultBlank = ["mindmap-blank", "logic-right-blank", "logic-left-blank", "org-down-blank"].includes(templateId);
   
   // 🌟 若为默认空白导图，自动赋予自增名称 "未命名 1", "未命名 2"；若为模板，加序号消重
   let assignedTitle = customTitle;
@@ -298,6 +371,7 @@ export function createNewTab(templateId = "mindmap-blank", customTitle = null) {
   const initialTree = sanitizeTreeForHistory(tpl.data);
   if (isDefaultBlank) {
     initialTree.text = assignedTitle;
+    initialTree.children = [];
   }
 
   const newTab = {
@@ -326,7 +400,8 @@ export function createNewTab(templateId = "mindmap-blank", customTitle = null) {
     historyStack: [{ type: "SNAPSHOT", payload: sanitizeTreeForHistory(initialTree) }],
     historyIndex: 0,
     spatialIndex: new QuadTree(),
-    versions: []
+    versions: [],
+    _skipAnimation: true
   };
   newTab._context = new DocumentContext(newTab);
   state.tabs.push(newTab);
@@ -348,8 +423,13 @@ export function closeTab(tabId) {
       closedTab.spatialIndex.clear();
       closedTab.spatialIndex = null;
     }
-    closedTab.mindData = null;
+    if (closedTab.mindData) {
+      deepSeverTree(closedTab.mindData);
+      closedTab.mindData = null;
+    }
+    closedTab.selectedIds?.clear();
     closedTab.historyStack = [];
+    closedTab.versions = [];
     delete closedTab.history;
     closedTab.camera = null;
   }
@@ -375,3 +455,13 @@ export function createDocumentContext(tab = null) {
 }
 
 export { saveSnapshot, undo, redo, COMMANDS, executeCommand, executeCompoundCommand } from "./history.js";
+
+export function deepSeverTree(node) {
+  if (!node) return;
+  if (node.children && Array.isArray(node.children)) {
+    for (let i = 0; i < node.children.length; i++) {
+      deepSeverTree(node.children[i]);
+    }
+    node.children.length = 0;
+  }
+}

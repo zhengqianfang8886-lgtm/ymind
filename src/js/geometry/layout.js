@@ -1,7 +1,8 @@
+import { nodeAnimator } from "../render/node-animator.js";
 import { COLOR_PALETTES, PRIORITY_COLORS } from "../data/palettes.js";
 import { getGlobalSettings } from "../core/config.js";
 import { bus, EVENTS } from "../core/event-bus.js";
-import { getAncestors } from "../core/tree-utils.js";
+import { getAncestors, findNode } from "../core/tree-utils.js";
 
 export { PRIORITY_COLORS };
 
@@ -11,8 +12,9 @@ export const SPACING_CONFIG = {
   loose: { hGap: 68, vGap: 22 }
 };
 
-export const MAX_NODE_TEXT_WIDTH = 520;
-export const MAX_ROOT_TEXT_WIDTH = 640;
+// 🌟 黄金阅读视觉排版：分支节点约 18-20 个中文字符折行，根节点约 22-24 字符
+export const MAX_NODE_TEXT_WIDTH = 280;
+export const MAX_ROOT_TEXT_WIDTH = 380;
 
 export function wrapTextLines(text, fontSize, maxWidth) {
   const raw = String(text ?? "");
@@ -79,7 +81,10 @@ export function wrapTextLines(text, fontSize, maxWidth) {
 
 const measureCanvas = (typeof document !== "undefined" && typeof document.createElement === "function") ? document.createElement("canvas") : null;
 const measureCtx = measureCanvas && typeof measureCanvas.getContext === "function" ? measureCanvas.getContext("2d") : null;
-const textWidthCache = new Map();
+let hotTextCache = new Map();
+let coldTextCache = new Map();
+const MAX_TEXT_CACHE = 8000;
+let globalFontRev = 1;
 
 let cachedFontFamily = null;
 export function getActiveFontFamily() {
@@ -92,7 +97,28 @@ export function getActiveFontFamily() {
 
 export function invalidateFontCache() {
   cachedFontFamily = null;
-  textWidthCache.clear();
+  globalFontRev++;
+  hotTextCache.clear();
+  coldTextCache.clear();
+}
+
+function getCachedTextWidth(cacheKey) {
+  let w = hotTextCache.get(cacheKey);
+  if (w !== undefined) return w;
+  w = coldTextCache.get(cacheKey);
+  if (w !== undefined) {
+    hotTextCache.set(cacheKey, w);
+    return w;
+  }
+  return undefined;
+}
+
+function setCachedTextWidth(cacheKey, width) {
+  if (hotTextCache.size >= MAX_TEXT_CACHE) {
+    coldTextCache = hotTextCache;
+    hotTextCache = new Map();
+  }
+  hotTextCache.set(cacheKey, width);
 }
 
 bus.on(EVENTS.CONFIG_CHANGE, () => invalidateFontCache());
@@ -102,15 +128,37 @@ export function markNodeLayoutDirty(nodeOrId, root) {
   const targetId = typeof nodeOrId === "object" ? nodeOrId?.id : nodeOrId;
   if (!targetId || targetId === root.id) {
     root._layoutDirty = true;
+    delete root.treeWidth;
+    delete root.treeHeight;
+    delete root.rightTreeHeight;
+    delete root.leftTreeHeight;
     return;
   }
   const ancestors = getAncestors(targetId, root);
   if (ancestors && ancestors.length > 0) {
     for (let i = 0; i < ancestors.length; i++) {
-      ancestors[i]._layoutDirty = true;
+      const a = ancestors[i];
+      a._layoutDirty = true;
+      delete a.treeWidth;
+      delete a.treeHeight;
+      delete a.rightTreeHeight;
+      delete a.leftTreeHeight;
     }
+    const target = ancestors[ancestors.length - 1];
+    function markSubtreeDirty(n) {
+      if (!n) return;
+      n._layoutDirty = true;
+      delete n.treeWidth;
+      delete n.treeHeight;
+      if (n.children && Array.isArray(n.children)) {
+        for (let i = 0; i < n.children.length; i++) markSubtreeDirty(n.children[i]);
+      }
+    }
+    markSubtreeDirty(target);
   } else {
     root._layoutDirty = true;
+    delete root.treeWidth;
+    delete root.treeHeight;
   }
 }
 
@@ -124,15 +172,11 @@ export function getTextLineWidth(text, fontSize) {
   if (measureCtx) {
     const fontFam = getActiveFontFamily();
     const cacheKey = `${raw}_${fontSize}_${fontFam}`;
-    let w = textWidthCache.get(cacheKey);
+    let w = getCachedTextWidth(cacheKey);
     if (w === undefined) {
       measureCtx.font = `500 ${fontSize}px ${fontFam}`;
       w = Math.ceil(measureCtx.measureText(raw).width);
-      if (textWidthCache.size >= 12000) {
-        const iter = textWidthCache.keys();
-        for (let j = 0; j < 2500; j++) textWidthCache.delete(iter.next().value);
-      }
-      textWidthCache.set(cacheKey, w);
+      setCachedTextWidth(cacheKey, w);
     }
     return w;
   }
@@ -187,15 +231,11 @@ export function measureTextWidth(text, fontSize = 13.5, fontWeight = "500", font
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const cacheKey = `${line}_${fontSize}_${fontWeight}_${fontStyle}_${fontFam}`;
-    let width = textWidthCache.get(cacheKey);
+    let width = getCachedTextWidth(cacheKey);
     if (width === undefined) {
       measureCtx.font = `${fontStyle !== "normal" ? fontStyle + " " : ""}${fontWeight} ${fontSize}px ${fontFam}`;
       width = measureCtx.measureText(line).width;
-      if (textWidthCache.size >= 12000) {
-        const iter = textWidthCache.keys();
-        for (let j = 0; j < 2500; j++) textWidthCache.delete(iter.next().value);
-      }
-      textWidthCache.set(cacheKey, width);
+      setCachedTextWidth(cacheKey, width);
     }
     if (width > maxW) maxW = width;
   }
@@ -208,14 +248,33 @@ export function measureNodeSize(node, level, focusedRootId) {
   // 🌟 Apple 原生视觉梯次：根节点 18px 庄重有力，一级主干 14.5px 挺拔，二级及细节 13.5px
   const defFontSize = isRoot ? 18 : (isLevel1 ? 14.5 : 13.5);
   const defFontWeight = isRoot ? "700" : (isLevel1 ? "600" : "500");
-  const fontSize = node.fontSize ? parseFloat(node.fontSize) : defFontSize;
+  // 🌟 BUG-04 防御：安全数值转换，杜绝 medium/large 等语义化字符串导入导致几何全盘崩溃为 NaN
+  const parsedSize = node.fontSize ? parseFloat(node.fontSize) : NaN;
+  const fontSize = (!isNaN(parsedSize) && parsedSize > 0) ? parsedSize : defFontSize;
   const fontWeight = node.fontWeight || defFontWeight;
   const fontStyle = node.fontStyle || "normal";
   const textDecoration = node.textDecoration || "none";
   const fontFam = getActiveFontFamily();
 
-  const contentSignature = `${node.text}_${fontSize}_${fontWeight}_${fontStyle}_${textDecoration}_${node.icon || ""}_${node.priority || ""}_${node.progress || ""}_${node.note ? "1" : "0"}_${node.link ? "1" : "0"}_${(node.tags || []).join(",")}_${fontFam}_w8_${node.todo ? (node.done ? "2" : "1") : "0"}`;
-  if (node._sizeSignature === contentSignature && node.width && node.height) return;
+  const tagsLen = (node.tags && Array.isArray(node.tags)) ? node.tags.length : 0;
+  const sig = node._cachedMetrics;
+  if (sig &&
+      sig.fontRev === globalFontRev &&
+      sig.text === node.text &&
+      sig.fontSize === fontSize &&
+      sig.fontWeight === fontWeight &&
+      sig.fontStyle === fontStyle &&
+      sig.textDecoration === textDecoration &&
+      sig.icon === node.icon &&
+      sig.priority === node.priority &&
+      sig.progress === node.progress &&
+      sig.hasNote === Boolean(node.note) &&
+      sig.hasLink === Boolean(node.link) &&
+      sig.todoState === (node.todo ? (node.done ? 2 : 1) : 0) &&
+      sig.tagsLen === tagsLen &&
+      node.width && node.height) {
+    return;
+  }
 
   const lineHeight = Math.round(fontSize * 1.32);
   const maxAllowedTextW = isRoot ? MAX_ROOT_TEXT_WIDTH : MAX_NODE_TEXT_WIDTH;
@@ -260,7 +319,21 @@ export function measureNodeSize(node, level, focusedRootId) {
   node.textWidth = textWidth;
   node.lines = lines;
   node.lineHeight = lineHeight;
-  node._sizeSignature = contentSignature;
+  node._cachedMetrics = {
+    fontRev: globalFontRev,
+    text: node.text,
+    fontSize,
+    fontWeight,
+    fontStyle,
+    textDecoration,
+    icon: node.icon,
+    priority: node.priority,
+    progress: node.progress,
+    hasNote: Boolean(node.note),
+    hasLink: Boolean(node.link),
+    todoState: (node.todo ? (node.done ? 2 : 1) : 0),
+    tagsLen
+  };
 }
 
 /**
@@ -287,11 +360,7 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
     node.treeMaxY = undefined;
 
     postOrder.push({ node, lvl });
-    if (node.children && !node.collapsed) {
-      // 增量短路优化：非全量排版下，未标记脏且已有几何尺寸的干净子树无需深入遍历
-      if (!forceAll && node._layoutDirty === false && node.treeWidth !== undefined && node.treeHeight !== undefined) {
-        continue;
-      }
+    if (node.children && Array.isArray(node.children) && !node.collapsed) {
       for (let i = 0; i < node.children.length; i++) {
         stack.push({ node: node.children[i], lvl: lvl + 1 });
       }
@@ -300,12 +369,9 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
 
   for (let i = postOrder.length - 1; i >= 0; i--) {
     const { node } = postOrder[i];
-    if (!forceAll && node._layoutDirty === false && node.treeWidth !== undefined && node.treeHeight !== undefined) {
-      continue;
-    }
     node._layoutDirty = false;
 
-    if (!node.children || node.children.length === 0 || node.collapsed) {
+    if (!node.children || !Array.isArray(node.children) || node.children.length === 0 || node.collapsed) {
       node.treeHeight = node.height;
       node.treeWidth = node.width;
       continue;
@@ -379,7 +445,7 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
  * @param {string} [density]
  * @param {any} [targetSpatialIndex]
  */
-export function assignCoordinates(root, startX, startY, focusedRootId = "root", structure = "mindmap", defDirection = null, defTheme = null, paletteKey = "apple-classic", density = "normal", targetSpatialIndex = null, forceRebuildSpatial = false) {
+export function assignCoordinates(root, startX, startY, focusedRootId = "root", structure = "mindmap", defDirection = null, defTheme = null, paletteKey = "apple-classic", density = "normal", targetSpatialIndex = null, forceRebuildSpatial = false, skipAnimation = false) {
   const currentPalette = COLOR_PALETTES[paletteKey] || COLOR_PALETTES["apple-classic"];
   const paletteList = currentPalette.branches;
   const spacing = SPACING_CONFIG[density] || SPACING_CONFIG.normal;
@@ -400,13 +466,18 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
     x: startX,
     y: startY,
     direction: initialDir,
-    theme: defTheme
+    theme: defTheme,
+    parent: null,
+    index: 0
   }];
 
   const processedList = [];
 
   while (queue.length > 0) {
-    const { node, x, y, direction, theme } = queue.shift();
+    const { node, x, y, direction, theme, parent, index } = queue.shift();
+    if (typeof nodeAnimator?.track === "function") {
+      nodeAnimator.track(node, x, y, parent, index, skipAnimation);
+    }
     node.x = x;
     node.y = y;
     node.branchDirection = direction;
@@ -448,7 +519,7 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
         node.children.forEach((child, idx) => {
           const nextTheme = (node.id === focusedRootId) ? paletteList[idx % paletteList.length] : node.colorTheme;
           const childX = curX + child.treeWidth / 2 - child.width / 2;
-          queue.push({ node: child, x: childX, y: y + node.height + 48, direction: "down", theme: nextTheme });
+          queue.push({ node: child, x: childX, y: y + node.height + 48, direction: "down", theme: nextTheme, parent: node, index: idx });
           curX += child.treeWidth + hGap;
         });
       } else if (structure === "mindmap" && node.id === focusedRootId) {
@@ -456,7 +527,7 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
         node.rightChildren.forEach((child, idx) => {
           const nextTheme = paletteList[(idx * 2) % paletteList.length];
           const childY = startYR + child.treeHeight / 2 - child.height / 2;
-          queue.push({ node: child, x: x + node.width + hGap, y: childY, direction: "right", theme: nextTheme });
+          queue.push({ node: child, x: x + node.width + hGap, y: childY, direction: "right", theme: nextTheme, parent: node, index: idx });
           startYR += child.treeHeight + vGap;
         });
 
@@ -464,7 +535,7 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
         node.leftChildren.forEach((child, idx) => {
           const nextTheme = paletteList[(idx * 2 + 1) % paletteList.length];
           const childY = startYL + child.treeHeight / 2 - child.height / 2;
-          queue.push({ node: child, x: x - child.width - hGap, y: childY, direction: "left", theme: nextTheme });
+          queue.push({ node: child, x: x - child.width - hGap, y: childY, direction: "left", theme: nextTheme, parent: node, index: idx });
           startYL += child.treeHeight + vGap;
         });
       } else {
@@ -475,7 +546,7 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
           const nextTheme = (node.id === focusedRootId) ? paletteList[idx % paletteList.length] : node.colorTheme;
           const childY = curY + child.treeHeight / 2 - child.height / 2;
           const childX = (activeDir === "left") ? (x - child.width - hGap) : (x + node.width + hGap);
-          queue.push({ node: child, x: childX, y: childY, direction: activeDir, theme: nextTheme });
+          queue.push({ node: child, x: childX, y: childY, direction: activeDir, theme: nextTheme, parent: node, index: idx });
           curY += child.treeHeight + vGap;
         });
       }
@@ -495,4 +566,33 @@ export function assignCoordinates(root, startX, startY, focusedRootId = "root", 
       }
     }
   }
+}
+
+
+export function ensureLayoutReady(tab = null, force = false) {
+  if (!tab || !tab.mindData) return false;
+  const rootId = tab.focusedRootId || "root";
+  let targetRoot = tab.mindData;
+  if (rootId && rootId !== tab.mindData.id) {
+    targetRoot = findNode(rootId, tab.mindData) || tab.mindData;
+  }
+
+  const isFresh = Boolean(tab._skipAnimation || tab._isFresh);
+  const isDirty = force || isFresh || tab.isLayoutDirty !== false || targetRoot.treeMinX === undefined || targetRoot._layoutDirty;
+  if (isDirty) {
+    if (isFresh && typeof nodeAnimator?.stopAll === "function") {
+      nodeAnimator.stopAll();
+    }
+    // 🌟 一旦发生几何形变，无条件全量重排（forceAll = true），杜绝旧高度固化
+    computeLayout(targetRoot, 0, tab.focusedRootId, tab.layoutStructure, tab.nodeSpacing || "normal", true);
+    assignCoordinates(targetRoot, 0, 0, tab.focusedRootId, tab.layoutStructure, null, null, tab.colorPalette || "apple-classic", tab.nodeSpacing || "normal", tab.spatialIndex, true, isFresh);
+    tab.isLayoutDirty = false;
+    tab._skipAnimation = false;
+    tab._isFresh = false;
+    if (typeof nodeAnimator?.markInitialized === "function") {
+      nodeAnimator.markInitialized();
+    }
+    return true;
+  }
+  return false;
 }

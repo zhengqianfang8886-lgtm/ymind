@@ -131,8 +131,20 @@ export async function lockCurrentTab() {
     return;
   }
 
-  if (tab.mindData && tab.password && !tab._isLocked) {
-    tab.encryptedVault = await encryptMindPayload(tab.mindData, tab.password, tab.passwordHint || "");
+  // 🌟 BUG-05 防御：锁定前进行严格重加密确认，加密未就绪前坚决禁止粉碎内存中的明文树
+  if (tab.mindData && !tab._isLocked) {
+    if (tab.password) {
+      try {
+        tab.encryptedVault = await encryptMindPayload(tab.mindData, tab.password, tab.passwordHint || "");
+      } catch (err) {
+        console.error("[Vault] Re-encryption failed before locking:", err);
+        showToast("⚠️ 加密暂存失败，已中止锁定以防数据丢失");
+        return;
+      }
+    } else if (!tab.encryptedVault) {
+      showToast("⚠️ 缺少加密凭证，已阻止锁定操作");
+      return;
+    }
   }
 
   tab.mindData = { id: "root", text: "🔒 导图已锁定", children: [] };
@@ -246,26 +258,12 @@ export function initVaultManager(renderApp) {
     bus.emit(EVENTS.SHOW_HOME);
   }
 
-  function handleCloseLockedDoc() {
+  async function handleCloseLockedDoc() {
     const curTab = getActiveTab();
     if (!curTab) return;
-    hideLockScreen();
-    const remaining = closeTab(curTab.id);
-    if (remaining === 0) {
-      bus.emit(EVENTS.SHOW_HOME);
-    } else {
-      const next = getActiveTab();
-      if (next) {
-        camera.transform = { ...next.camera };
-        applyCanvasThemeToBody(next.canvasBgColor || "studio-white", next.canvasBgPattern || "dots");
-        if (next.isEncrypted && next._isLocked) showLockScreen(next);
-        else hideLockScreen();
-      }
-      renderTabBar();
-      bus.emit(EVENTS.RENDER_APP);
-      syncInspectorUi();
-      updateSecurityDockStatus();
-    }
+    // 🌟 P0-3 防御：接入完整未保存提示确认管道，杜绝直接物理销毁未落盘的加密文档草稿
+    const { closeTabWithConfirm } = await import("../core/tab-manager.js");
+    await closeTabWithConfirm(curTab.id, renderAppRef, () => bus.emit(EVENTS.SHOW_HOME));
   }
 
   btnPosterClose?.addEventListener("click", handleCloseLockedDoc);

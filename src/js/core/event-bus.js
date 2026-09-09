@@ -27,5 +27,8 @@ export const EVENTS = {
   SYNC_VAULT_UI: "vault:sync_ui",
   CONFIG_CHANGE: "config:change",
   SESSION_SAVE_REQUEST: "session:save_request",
-  SESSION_SAVE_IMMEDIATE: "session:save_immediate"
+  SESSION_SAVE_IMMEDIATE: "session:save_immediate",
+  START_NODE_EDIT: "node:start_edit",
+  NODE_ADD_CHILD: "node:add_child",
+  NODE_ADD_SIBLING: "node:add_sibling"
 };

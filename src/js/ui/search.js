@@ -1,4 +1,4 @@
-import { state, getAncestors, findNode, getActiveDocumentContext } from "../core/state.js";
+import { state, getAncestors, findNode, getActiveDocumentContext, walkTree } from "../core/state.js";
 import { ensureNodeVisible } from "../core/camera.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 
@@ -44,22 +44,19 @@ function performSearch() {
     return;
   }
 
-  function searchTree(node) {
-    if (!node) return;
-    const matchText = node.text && String(node.text).toLowerCase().includes(query);
-    const matchPriority = node.priority && String(node.priority).toLowerCase().includes(query);
-    const matchTag = Array.isArray(node.tags) && node.tags.some(t => String(t).toLowerCase().includes(query));
-    const matchNote = node.note && String(node.note).toLowerCase().includes(query);
-
-    if (matchText || matchPriority || matchTag || matchNote) {
-      matchedNodeIds.push(node.id);
-    }
-
-    if (node.children) node.children.forEach(searchTree);
-  }
-
   const docCtx = getActiveDocumentContext();
-  if (docCtx?.mindData) searchTree(docCtx.mindData);
+  if (docCtx?.mindData) {
+    for (const node of walkTree(docCtx.mindData)) {
+      const matchText = node.text && String(node.text).toLowerCase().includes(query);
+      const matchPriority = node.priority && String(node.priority).toLowerCase().includes(query);
+      const matchTag = Array.isArray(node.tags) && node.tags.some(t => String(t).toLowerCase().includes(query));
+      const matchNote = node.note && String(node.note).toLowerCase().includes(query);
+
+      if (matchText || matchPriority || matchTag || matchNote) {
+        matchedNodeIds.push(node.id);
+      }
+    }
+  }
 
   if (matchedNodeIds.length > 0) {
     currentMatchIndex = 0;
@@ -82,8 +79,19 @@ function focusCurrentMatch() {
 
   if (currentMatchIndex >= 0 && currentMatchIndex < matchedNodeIds.length) {
     const targetId = matchedNodeIds[currentMatchIndex];
-    // 自动沿途展开父级折叠节点
     const ancestors = getAncestors(targetId, docCtx.mindData);
+
+    // 🌟 P1-8 防御：若搜索命中项脱离当前专注分支，自动复位全图视野，杜绝相机飞向空地黑屏
+    const rootId = docCtx.mindData?.id || "root";
+    if (docCtx.focusedRootId && docCtx.focusedRootId !== rootId) {
+      const isInside = targetId === docCtx.focusedRootId || (ancestors && ancestors.some(a => a.id === docCtx.focusedRootId));
+      if (!isInside) {
+        docCtx.focusedRootId = rootId;
+        docCtx.isLayoutDirty = true;
+      }
+    }
+
+    // 自动沿途展开父级折叠节点
     if (ancestors) {
       ancestors.forEach(a => {
         if (a.id !== targetId && a.collapsed) {

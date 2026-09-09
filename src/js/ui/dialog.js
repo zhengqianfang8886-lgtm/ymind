@@ -124,14 +124,42 @@ function mountDialog(renderHtml, onAttach) {
   });
 }
 
-export function appAlert({ title = "系统提示", message = "", type = "info", confirmText = "确定" } = {}) {
-  return mountDialog(`
-    <div class="apple-modal-card dialog-modal-card">
-      <div class="apple-modal-header"><div class="modal-header-icon ${type}">ℹ️</div><div class="modal-title-wrap"><h3 class="apple-modal-title">${escapeHtml(title)}</h3></div></div>
-      <div class="apple-modal-body"><p class="dialog-message">${escapeHtml(message)}</p></div>
-      <div class="apple-modal-footer"><button id="dialog-btn-confirm" class="modal-btn modal-btn-primary">${escapeHtml(confirmText)}</button></div>
+/**
+ * 🌟 Apple HIG 超椭圆模态卡片 HTML 统一工厂
+ */
+export function renderAppleModalHtml({
+  icon = "ℹ️",
+  type = "info",
+  title = "提示",
+  subtitle = "",
+  bodyHtml = "",
+  footerButtonsHtml = "",
+  cardClass = "dialog-modal-card"
+}) {
+  return `
+    <div class="apple-modal-card ${cardClass}">
+      <div class="apple-modal-header">
+        <div class="modal-header-icon ${type}">${icon}</div>
+        <div class="modal-title-wrap">
+          <h3 class="apple-modal-title">${escapeHtml(title)}</h3>
+          ${subtitle ? `<span style="font-size:11.5px;color:var(--text-tertiary);">${escapeHtml(subtitle)}</span>` : ""}
+        </div>
+      </div>
+      <div class="apple-modal-body">${bodyHtml}</div>
+      ${footerButtonsHtml ? `<div class="apple-modal-footer">${footerButtonsHtml}</div>` : ""}
     </div>
-  `, (overlay, cleanup) => {
+  `;
+}
+
+export function appAlert({ title = "系统提示", message = "", type = "info", confirmText = "确定" } = {}) {
+  const html = renderAppleModalHtml({
+    icon: "ℹ️",
+    type,
+    title,
+    bodyHtml: `<p class="dialog-message">${escapeHtml(message)}</p>`,
+    footerButtonsHtml: `<button id="dialog-btn-confirm" class="modal-btn modal-btn-primary">${escapeHtml(confirmText)}</button>`
+  });
+  return mountDialog(html, (overlay, cleanup) => {
     const btn = overlay.querySelector("#dialog-btn-confirm");
     btn?.focus();
     btn?.addEventListener("click", () => cleanup(true));
@@ -139,16 +167,17 @@ export function appAlert({ title = "系统提示", message = "", type = "info", 
 }
 
 export function appConfirm({ title = "请确认", message = "", confirmText = "确认", cancelText = "取消", isDanger = false } = {}) {
-  return mountDialog(`
-    <div class="apple-modal-card dialog-modal-card">
-      <div class="apple-modal-header"><div class="modal-header-icon ${isDanger ? "danger" : "warning"}">${isDanger ? "🗑️" : "⚠️"}</div><div class="modal-title-wrap"><h3 class="apple-modal-title">${escapeHtml(title)}</h3></div></div>
-      <div class="apple-modal-body"><p class="dialog-message">${escapeHtml(message)}</p></div>
-      <div class="apple-modal-footer">
-        <button id="dialog-btn-cancel" class="modal-btn modal-btn-secondary">${escapeHtml(cancelText)}</button>
-        <button id="dialog-btn-confirm" class="modal-btn ${isDanger ? "modal-btn-danger" : "modal-btn-primary"}">${escapeHtml(confirmText)}</button>
-      </div>
-    </div>
-  `, (overlay, cleanup) => {
+  const html = renderAppleModalHtml({
+    icon: isDanger ? "🗑️" : "⚠️",
+    type: isDanger ? "danger" : "warning",
+    title,
+    bodyHtml: `<p class="dialog-message">${escapeHtml(message)}</p>`,
+    footerButtonsHtml: `
+      <button id="dialog-btn-cancel" class="modal-btn modal-btn-secondary">${escapeHtml(cancelText)}</button>
+      <button id="dialog-btn-confirm" class="modal-btn ${isDanger ? "modal-btn-danger" : "modal-btn-primary"}">${escapeHtml(confirmText)}</button>
+    `
+  });
+  return mountDialog(html, (overlay, cleanup) => {
     overlay.querySelector("#dialog-btn-confirm")?.focus();
     overlay.querySelector("#dialog-btn-confirm")?.addEventListener("click", () => cleanup(true));
     overlay.querySelector("#dialog-btn-cancel")?.addEventListener("click", () => cleanup(false));
@@ -156,16 +185,23 @@ export function appConfirm({ title = "请确认", message = "", confirmText = "�
 }
 
 export function appPrompt({ title = "请输入", message = "", placeholder = "", defaultValue = "", inputType = "text", confirmText = "确定", cancelText = "取消" } = {}) {
-  return mountDialog(`
-    <div class="apple-modal-card dialog-modal-card">
-      <div class="apple-modal-header"><div class="modal-header-icon primary">🔒</div><div class="modal-title-wrap"><h3 class="apple-modal-title">${escapeHtml(title)}</h3></div></div>
-      <div class="apple-modal-body">${message ? `<p class="dialog-message">${escapeHtml(message)}</p>` : ""}<div class="dialog-input-wrapper"><input id="dialog-input" class="apple-modal-input" type="${inputType}" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(defaultValue)}" autocomplete="off" /></div></div>
-      <div class="apple-modal-footer">
-        <button id="dialog-btn-cancel" class="modal-btn modal-btn-secondary">${escapeHtml(cancelText)}</button>
-        <button id="dialog-btn-confirm" class="modal-btn modal-btn-primary">${escapeHtml(confirmText)}</button>
-      </div>
+  const body = `
+    ${message ? `<p class="dialog-message">${escapeHtml(message)}</p>` : ""}
+    <div class="dialog-input-wrapper">
+      <input id="dialog-input" class="apple-modal-input" type="${inputType}" placeholder="${escapeHtml(placeholder)}" value="${escapeHtml(defaultValue)}" autocomplete="off" />
     </div>
-  `, (overlay, cleanup) => {
+  `;
+  const html = renderAppleModalHtml({
+    icon: "🔒",
+    type: "primary",
+    title,
+    bodyHtml: body,
+    footerButtonsHtml: `
+      <button id="dialog-btn-cancel" class="modal-btn modal-btn-secondary">${escapeHtml(cancelText)}</button>
+      <button id="dialog-btn-confirm" class="modal-btn modal-btn-primary">${escapeHtml(confirmText)}</button>
+    `
+  });
+  return mountDialog(html, (overlay, cleanup) => {
     const input = overlay.querySelector("#dialog-input");
     input?.focus();
     input?.select();

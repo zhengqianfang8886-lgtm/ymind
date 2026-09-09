@@ -176,6 +176,17 @@ export async function navigateCrossDocument(filePath, targetNodeId) {
 
   // A. 若目标属于外部参考格式（如 PDF、Office 资料），调起系统默认程序打开
   if (!isMindMapFile) {
+    // 🌟 P1-5 防御：严格安全扩展名过滤，杜绝被诱导调起系统可执行程序或恶意脚本
+    const isDangerousExt = /\.(exe|bat|cmd|sh|bash|zsh|app|vbs|vbe|js|jse|wsf|wsh|msc|msi|msp|ps1|ps2|com|scr|pif|jar|reg|bin)$/i.test(resolvedPath);
+    if (isDangerousExt) {
+      showToast("⚠️ 出于安全考虑，禁止直接调起系统可执行程序或脚本文件");
+      return;
+    }
+    const isSafeDocExt = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|csv|tsv|png|jpe?g|gif|webp|svg|bmp|ico|mp3|wav|ogg|mp4|webm|zip|tar|gz)$/i.test(resolvedPath);
+    if (!isSafeDocExt) {
+      showToast("⚠️ 不支持或未知的安全参考文件类型");
+      return;
+    }
     showToast("📄 正在调起系统默认应用程序查看资料...");
     await openExternalUrl(`file://${resolvedPath}`);
     return;

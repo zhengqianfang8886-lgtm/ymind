@@ -3,6 +3,7 @@ import { executeCommand, executeCompoundCommand, COMMANDS } from "../core/histor
 import { PRIORITY_COLORS } from "../data/palettes.js";
 import { openNotesDrawer } from "../ui/notes.js";
 import { getDueDateStatus, promptEditDueDate } from "../ui/due-date.js";
+import { handleNodesMigrationTodoProgress, syncMigratedNodeStyles } from "../ui/todo.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 
 let renderAppRef = null;
@@ -140,6 +141,12 @@ function renderOutlinerListFlow(content, visibleItems, ctx, panel) {
   panel._latestVisibleItems = visibleItems;
   panel._latestCtx = ctx;
 
+  // 跨 Tab 或根节点变动时，清理脱水残留的孤儿 DOM 闭包
+  if (panel._activeTabId !== ctx.id) {
+    sliceContainer.innerHTML = "";
+    panel.scrollTop = 0;
+    panel._activeTabId = ctx.id;
+  }
   updateVirtualSlice(sliceContainer, panel, visibleItems, ctx);
 }
 
@@ -152,10 +159,9 @@ function updateVirtualSlice(sliceContainer, panel, visibleItems, ctx) {
   }
 
   const viewportH = panel.clientHeight || 800;
-  const targetId = pendingFocusNodeId || (document.activeElement?.closest?.(".outliner-row")?.dataset?.id);
-
-  if (targetId) {
-    const targetIdx = visibleItems.findIndex(it => it.node.id === targetId);
+  // 🌟 P1-4 防御：仅在程序主动重定向（pendingFocusNodeId）时滚动视口，用户手动滑动时杜绝回弹死锁
+  if (pendingFocusNodeId) {
+    const targetIdx = visibleItems.findIndex(it => it.node.id === pendingFocusNodeId);
     if (targetIdx >= 0) {
       const targetTop = targetIdx * ROW_HEIGHT;
       if (targetTop < (panel.scrollTop || 0) || targetTop > (panel.scrollTop || 0) + viewportH - ROW_HEIGHT * 2) {
@@ -167,14 +173,6 @@ function updateVirtualSlice(sliceContainer, panel, visibleItems, ctx) {
   const scrollTop = panel.scrollTop || 0;
   let startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   let endIdx = Math.min(totalItems, Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + OVERSCAN);
-
-  if (targetId) {
-    const targetIdx = visibleItems.findIndex(it => it.node.id === targetId);
-    if (targetIdx >= 0) {
-      if (targetIdx < startIdx) startIdx = Math.max(0, targetIdx - 2);
-      if (targetIdx >= endIdx) endIdx = Math.min(totalItems, targetIdx + 3);
-    }
-  }
 
   const offsetY = startIdx * ROW_HEIGHT;
   sliceContainer.style.transform = `translate3d(0px, ${offsetY}px, 0)`;
@@ -191,9 +189,14 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
   const activeIds = new Set(visibleItems.map(item => item.node.id));
   const activeEditingId = document.activeElement?.closest?.(".outliner-row")?.dataset?.id;
   existingRows.forEach((el, id) => {
-    // 🌟 钉住正在编辑输入中的节点，严禁被虚拟切片从 DOM 移除
-    if (id === activeEditingId || id === pendingFocusNodeId) return;
-    if (!activeIds.has(id)) el.remove();
+    if (id === pendingFocusNodeId) return;
+    if (!activeIds.has(id)) {
+      if (id === activeEditingId) {
+        // 滚动越界时让编辑行平稳失焦提交，杜绝节点位置错位
+        document.activeElement?.blur?.();
+      }
+      el.remove();
+    }
   });
 
   visibleItems.forEach((item, itemIdx) => {
@@ -239,16 +242,23 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
 
     const toggleIcon = row.querySelector(".outliner-toggle-icon");
     toggleIcon.className = `outliner-toggle-icon ${hasChildren ? (node.collapsed ? "collapsed" : "expanded") : "leaf"}`;
-    toggleIcon.onclick = (e) => {
+    toggleIcon.onclick = async (e) => {
       e.stopPropagation();
       if (hasChildren) {
         // 🌟 需求 1：大纲模式收放时焦点同步切换到该节点
         if (ctx) ctx.selectNode(node.id);
+        const nextCollapsed = !node.collapsed;
+        const { nodeAnimator } = await import("./node-animator.js");
+        if (nextCollapsed) {
+          nodeAnimator.collapseBranch(node);
+        } else {
+          nodeAnimator.prepareExpand(node);
+        }
         executeCommand({
           type: COMMANDS.UPDATE_ATTRS,
           nodeId: node.id,
           oldAttrs: { collapsed: Boolean(node.collapsed) },
-          newAttrs: { collapsed: !node.collapsed }
+          newAttrs: { collapsed: nextCollapsed }
         });
         if (ctx) ctx.markLayoutDirty(node.id);
         renderOutliner(renderAppRef);
@@ -344,6 +354,27 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
     textDiv.onblur = () => {
       if (isComposingIME) return;
       const val = textDiv.innerText.trim();
+      // 🌟 防线 1：若节点未输入任何文字且无子节点（如回车新建后直接失焦），彻底移除该空节点，杜绝隐形幽灵节点
+      if (!val && (!node.children || node.children.length === 0)) {
+        const curIdx = parentNode.children ? parentNode.children.findIndex(c => c.id === node.id) : -1;
+        if (curIdx !== -1) {
+          executeCommand({
+            type: COMMANDS.REMOVE_NODE,
+            nodeId: node.id,
+            oldParentId: parentNode.id,
+            oldIndex: curIdx,
+            oldNode: node
+          });
+          if (ctx) {
+            ctx.markLayoutDirty(parentNode.id);
+            const fallbackNode = parentNode.children[Math.max(0, curIdx - 1)] || parentNode;
+            ctx.selectNode(fallbackNode.id);
+          }
+          renderOutliner(renderAppRef);
+          bus.emit(EVENTS.RENDER_APP);
+          return;
+        }
+      }
       if (val !== node.text) {
         executeCommand({
           type: COMMANDS.SET_TEXT,
@@ -360,6 +391,10 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
 
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
+        // 🌟 防线 2：若当前行本身就是末梢空白节点，拦截连续回车，禁止空节点链式繁殖
+        if (!textDiv.innerText.trim() && (!node.children || node.children.length === 0)) {
+          return;
+        }
         const newSibling = {
           id: "node_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
           text: "",
@@ -381,17 +416,31 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
         e.preventDefault();
         if (curIdx > 0) {
           const prevSibling = parentNode.children[curIdx - 1];
-          executeCommand({
+          const subCommands = [{
             type: COMMANDS.MOVE_NODE,
             nodeId: node.id,
             fromParentId: parentNode.id,
             toParentId: prevSibling.id,
             fromIndex: curIdx,
             toIndex: prevSibling.children ? prevSibling.children.length : 0
-          });
+          }];
+
+          syncMigratedNodeStyles(node, prevSibling, ctx?.layoutStructure, ctx?.focusedRootId);
+
+          const progressCmds = handleNodesMigrationTodoProgress(parentNode, prevSibling, [node]);
+          subCommands.push(...progressCmds);
+
+          if (subCommands.length === 1) executeCommand(subCommands[0]);
+          else executeCompoundCommand(subCommands);
+
           prevSibling.collapsed = false;
+          if (ctx) {
+            ctx.markLayoutDirty(parentNode.id);
+            ctx.markLayoutDirty(prevSibling.id);
+          }
           pendingFocusNodeId = node.id;
           renderOutliner(renderAppRef);
+          bus.emit(EVENTS.RENDER_APP);
         }
         return;
       }
@@ -402,16 +451,30 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
           const grandParent = findParent(parentNode.id, ctx.mindData);
           if (grandParent) {
             const pIdx = grandParent.children.findIndex(c => c.id === parentNode.id);
-            executeCommand({
+            const subCommands = [{
               type: COMMANDS.MOVE_NODE,
               nodeId: node.id,
               fromParentId: parentNode.id,
               toParentId: grandParent.id,
               fromIndex: curIdx,
               toIndex: pIdx + 1
-            });
+            }];
+
+            syncMigratedNodeStyles(node, grandParent, ctx?.layoutStructure, ctx?.focusedRootId);
+
+            const progressCmds = handleNodesMigrationTodoProgress(parentNode, grandParent, [node]);
+            subCommands.push(...progressCmds);
+
+            if (subCommands.length === 1) executeCommand(subCommands[0]);
+            else executeCompoundCommand(subCommands);
+
+            if (ctx) {
+              ctx.markLayoutDirty(parentNode.id);
+              ctx.markLayoutDirty(grandParent.id);
+            }
             pendingFocusNodeId = node.id;
             renderOutliner(renderAppRef);
+            bus.emit(EVENTS.RENDER_APP);
           }
         }
         return;

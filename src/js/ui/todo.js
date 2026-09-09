@@ -162,3 +162,86 @@ export function toggleNodeTodo(targetNode = null) {
   const countStr = nodes.length > 1 ? ` ${nodes.length} 个` : "";
   showToast(willBeTodo ? `☑️ 已将${countStr}节点转换为待办事项` : `📄 已将${countStr}节点恢复为普通节点`);
 }
+
+/**
+ * 🌟 当节点从旧父级迁移到新父级时，计算并返回关于待办进度变更的子命令列表
+ */
+export function handleNodesMigrationTodoProgress(oldParent, newParent, movingNodes) {
+  if (!oldParent && !newParent) return [];
+  const commands = [];
+  const movingIds = new Set((movingNodes || []).map(n => n.id));
+  const hasMovingTodo = (movingNodes || []).some(n => n.todo);
+
+  // 1. 旧父级待办进度重算与清算
+  if (oldParent) {
+    const hadTodoMoved = (oldParent.children || []).some(c => movingIds.has(c.id) && c.todo);
+    const remainingChildren = (oldParent.children || []).filter(c => !movingIds.has(c.id));
+    const remainingTodos = remainingChildren.filter(c => c.todo);
+    if (hadTodoMoved || remainingTodos.length > 0) {
+      let newOldPrg = null;
+      if (remainingTodos.length > 0) {
+        const doneCount = remainingTodos.filter(c => c.done).length;
+        newOldPrg = `${Math.round((doneCount / remainingTodos.length) * 100)}%`;
+      }
+      if (oldParent.progress !== newOldPrg) {
+        commands.push({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: oldParent.id,
+          oldAttrs: { progress: oldParent.progress || null },
+          newAttrs: { progress: newOldPrg }
+        });
+      }
+    }
+  }
+
+  // 2. 新父级待办进度聚合与点亮
+  if (newParent) {
+    const existingTodoChildren = (newParent.children || []).filter(c => !movingIds.has(c.id) && c.todo);
+    const incomingTodoNodes = (movingNodes || []).filter(n => n.todo);
+    const totalTodos = existingTodoChildren.length + incomingTodoNodes.length;
+    if (hasMovingTodo || existingTodoChildren.length > 0) {
+      let newParentPrg = null;
+      if (totalTodos > 0) {
+        const doneCount = existingTodoChildren.filter(c => c.done).length + incomingTodoNodes.filter(c => c.done).length;
+        newParentPrg = `${Math.round((doneCount / totalTodos) * 100)}%`;
+      }
+      if (newParent.progress !== newParentPrg) {
+        commands.push({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: newParent.id,
+          oldAttrs: { progress: newParent.progress || null },
+          newAttrs: { progress: newParentPrg }
+        });
+      }
+    }
+  }
+
+  return commands;
+}
+
+/**
+ * 🌟 递归同步被迁移节点及其子分支的生长方向与尺寸缓存签名
+ */
+export function syncMigratedNodeStyles(node, newParent, layoutStructure = "mindmap", focusedRootId = "root") {
+  if (!node) return;
+  let targetDir = node.branchDirection;
+  if (newParent) {
+    if (newParent.id === focusedRootId) {
+      if (layoutStructure === "logic-left") targetDir = "left";
+      else if (layoutStructure === "org-down") targetDir = "down";
+      else if (!targetDir) targetDir = "right";
+    } else {
+      targetDir = newParent.branchDirection || (layoutStructure === "logic-left" ? "left" : "right");
+    }
+  }
+
+  function applyStyles(curr, dir) {
+    curr.branchDirection = dir;
+    delete curr._sizeSignature;
+    if (curr.children && Array.isArray(curr.children)) {
+      curr.children.forEach(c => applyStyles(c, dir));
+    }
+  }
+
+  applyStyles(node, targetDir);
+}

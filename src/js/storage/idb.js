@@ -7,7 +7,11 @@ const DB_VERSION = 2; // 升级版本号以创建 drafts 库
 const STORE_SNAPSHOTS = "snapshots";
 const STORE_DRAFTS = "drafts";
 
+// 🌟 BUG-06 防御：数据库单例长连接，彻底终结高频自动快照导致的 IDBDatabase 句柄无限泄漏
+let cachedDB = null;
+
 function openDB() {
+  if (cachedDB) return Promise.resolve(cachedDB);
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
@@ -19,7 +23,17 @@ function openDB() {
         db.createObjectStore(STORE_DRAFTS, { keyPath: "id" });
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      cachedDB = req.result;
+      cachedDB.onclose = () => { cachedDB = null; };
+      cachedDB.onversionchange = () => {
+        if (cachedDB) {
+          cachedDB.close();
+          cachedDB = null;
+        }
+      };
+      resolve(cachedDB);
+    };
     req.onerror = () => reject(req.error);
   });
 }

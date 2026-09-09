@@ -1,4 +1,4 @@
-import { state, findNode, getActiveDocumentContext } from "../core/state.js";
+import { state, findNode, getActiveDocumentContext, walkTree } from "../core/state.js";
 import { camera, requestTransformUpdate } from "../core/camera.js";
 
 const minimapWidget = document.getElementById("minimap-widget");
@@ -37,16 +37,14 @@ export function updateMinimap() {
   if (!currentRoot) return;
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  function scanBounds(n) {
-    if (n && n.x !== undefined && n.y !== undefined) {
+  for (const n of walkTree(currentRoot, { skipCollapsed: true })) {
+    if (n.x !== undefined && n.y !== undefined) {
       minX = Math.min(minX, n.x);
       maxX = Math.max(maxX, n.x + (n.width || 80));
       minY = Math.min(minY, n.y);
       maxY = Math.max(maxY, n.y + (n.height || 36));
     }
-    if (n.children && !n.collapsed) n.children.forEach(scanBounds);
   }
-  scanBounds(currentRoot);
 
   if (minX === Infinity || !isFinite(minX) || maxX <= minX || maxY <= minY) {
     if (viewportBox) viewportBox.style.display = "none";
@@ -167,6 +165,16 @@ function onWindowMouseMove(e) {
 }
 
 function onWindowMouseUp() {
+  isDraggingMinimap = false;
+}
+
+export function destroyMinimap() {
+  window.removeEventListener("mousemove", onWindowMouseMove);
+  window.removeEventListener("mouseup", onWindowMouseUp);
+  if (minimapWidget) {
+    minimapWidget.onmousedown = null;
+    minimapWidget._isBound = false;
+  }
   isDraggingMinimap = false;
 }
 

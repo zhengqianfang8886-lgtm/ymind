@@ -1,10 +1,102 @@
-import { state, findNode, saveSnapshot, getPrimarySelectedNode, getActiveDocumentContext } from "../core/state.js";
+import { state, findNode, getPrimarySelectedNode, getActiveDocumentContext, COMMANDS } from "../core/state.js";
 import { showToast, escapeHtml } from "./dialog.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 
 let activeNoteNodeId = null;
 let noteSaveTimer = null;
 let taskCounter = 0;
+let committedNoteText = null;
+
+// 🌟 Markdown 编辑器独立撤销/重做历史栈
+let noteHistory = [];
+let noteHistoryIndex = -1;
+const MAX_NOTE_HISTORY = 80;
+
+function resetNoteHistory(initialText = "") {
+  noteHistory = [{
+    text: initialText,
+    selStart: initialText.length,
+    selEnd: initialText.length
+  }];
+  noteHistoryIndex = 0;
+}
+
+function pushNoteHistory(textarea, force = false) {
+  if (!textarea) return;
+  const val = textarea.value;
+  const selStart = textarea.selectionStart;
+  const selEnd = textarea.selectionEnd;
+
+  if (!force && noteHistoryIndex >= 0 && noteHistory[noteHistoryIndex]?.text === val) {
+    return;
+  }
+
+  if (noteHistoryIndex < noteHistory.length - 1) {
+    noteHistory.splice(noteHistoryIndex + 1);
+  }
+
+  noteHistory.push({ text: val, selStart, selEnd });
+  if (noteHistory.length > MAX_NOTE_HISTORY) {
+    noteHistory.shift();
+  } else {
+    noteHistoryIndex++;
+  }
+}
+
+function undoNote(textarea) {
+  if (!textarea || noteHistoryIndex <= 0) return;
+  noteHistoryIndex--;
+  const rec = noteHistory[noteHistoryIndex];
+  if (rec) {
+    textarea.value = rec.text;
+    textarea.setSelectionRange(rec.selStart, rec.selEnd);
+    textarea.dispatchEvent(new Event("input"));
+  }
+}
+
+function redoNote(textarea) {
+  if (!textarea || noteHistoryIndex >= noteHistory.length - 1) return;
+  noteHistoryIndex++;
+  const rec = noteHistory[noteHistoryIndex];
+  if (rec) {
+    textarea.value = rec.text;
+    textarea.setSelectionRange(rec.selStart, rec.selEnd);
+    textarea.dispatchEvent(new Event("input"));
+  }
+}
+
+function highlightCode(code) {
+  const escaped = escapeHtml(code);
+  return escaped
+    .replace(/(\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|#[^\r\n]*)/g, '<span class="tok-com">$1</span>')
+    .replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g, '<span class="tok-str">$1</span>')
+    .replace(/\b(const|let|var|function|return|if|else|for|while|import|export|from|class|async|await|def|new|try|catch|finally|throw|typeof|instanceof)\b/g, '<span class="tok-kw">$1</span>')
+    .replace(/\b(true|false|null|undefined|NaN)\b/g, '<span class="tok-num">$1</span>')
+    .replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
+}
+
+function commitNoteChange(node, newText, oldText = committedNoteText) {
+  const docCtx = getActiveDocumentContext();
+  if (!node || !docCtx) return;
+  const prevVal = oldText !== null ? oldText : (node.note || "");
+  const nextVal = newText || "";
+  if (prevVal === nextVal) return;
+
+  const hadNote = Boolean(prevVal.trim());
+  const hasNote = Boolean(nextVal.trim());
+  if (hadNote !== hasNote) {
+    docCtx.markLayoutDirty(node.id);
+  }
+
+  docCtx.executeCommand({
+    type: COMMANDS.UPDATE_ATTRS,
+    nodeId: node.id,
+    oldAttrs: { note: prevVal ? prevVal : undefined },
+    newAttrs: { note: nextVal ? nextVal : undefined }
+  });
+
+  committedNoteText = nextVal;
+}
 
 function sanitizeUrl(url) {
   const clean = String(url || "").trim();
@@ -142,14 +234,22 @@ export function renderMarkdown(md) {
       } else {
         inCodeBlock = false;
         const codeText = codeLines.join("\n");
-        const safeLang = codeLang.toUpperCase();
+        const safeLang = (codeLang || "plaintext").toLowerCase();
+        const highlighted = highlightCode(codeText);
         out.push(`
           <div class="code-block-wrapper">
             <div class="code-block-header">
-              <span class="code-lang-tag">${escapeHtml(safeLang)}</span>
-              <button class="btn-copy-code" data-code="${escapeHtml(codeText)}" title="复制全部代码">📋 复制</button>
+              <div class="code-header-left">
+                <span class="code-mac-dots">
+                  <span class="mac-dot mac-dot-red"></span>
+                  <span class="mac-dot mac-dot-yellow"></span>
+                  <span class="mac-dot mac-dot-green"></span>
+                </span>
+                <span class="code-lang-tag">${escapeHtml(safeLang)}</span>
+              </div>
+              <button class="btn-copy-code" data-code="${escapeHtml(codeText)}" title="复制代码">📋 复制</button>
             </div>
-            <pre><code class="language-${escapeHtml(codeLang)}">${escapeHtml(codeText)}</code></pre>
+            <pre><code class="language-${escapeHtml(safeLang)}">${highlighted}</code></pre>
           </div>
         `);
       }
@@ -335,14 +435,8 @@ export function flushPendingNote() {
 
   const docCtx = getActiveDocumentContext();
   const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
-  if (node && (node.note || "") !== textarea.value) {
-    const hadNote = Boolean(node.note);
-    node.note = textarea.value;
-    const hasNote = Boolean(node.note);
-    if (hadNote !== hasNote && docCtx) {
-      docCtx.markLayoutDirty(node.id);
-    }
-    saveSnapshot();
+  if (node) {
+    commitNoteChange(node, textarea.value);
   }
 }
 
@@ -415,10 +509,10 @@ function toggleTaskInMarkdown(taskIdx, newChecked) {
   });
 
   textarea.value = text;
-  const node = findNode(activeNoteNodeId, (getActiveDocumentContext()?.mindData || null));
+  const docCtx = getActiveDocumentContext();
+  const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
   if (node) {
-    node.note = text;
-    saveSnapshot();
+    commitNoteChange(node, text);
     bus.emit(EVENTS.RENDER_APP);
   }
 
@@ -440,13 +534,23 @@ export function syncNotesDrawerWithActiveNode() {
   }
 
   if (primaryNode.id === activeNoteNodeId) {
-    const title = document.getElementById("notes-drawer-title");
     if (title) title.innerText = (primaryNode.icon ? primaryNode.icon + " " : "") + (primaryNode.text || "节点备注");
+    const curNote = primaryNode.note || "";
+    if (textarea && textarea.value !== curNote) {
+      textarea.value = curNote;
+      committedNoteText = curNote;
+      if (preview) {
+        preview.innerHTML = DOMPurify.sanitize(renderMarkdown(curNote));
+        bindPreviewInteractions(preview);
+      }
+      updateNotesStats(curNote);
+    }
     return;
   }
 
   flushPendingNote();
   activeNoteNodeId = primaryNode.id;
+  committedNoteText = primaryNode.note || "";
 
   const title = document.getElementById("notes-drawer-title");
   const textarea = document.getElementById("notes-textarea");
@@ -503,6 +607,7 @@ export function initNotesDrawer() {
   tabPrev?.addEventListener("click", () => switchTab("preview"));
   closeBtn?.addEventListener("click", closeNotesDrawer);
 
+  let inputDebounceTimer = null;
   textarea?.addEventListener("input", () => {
     if (!activeNoteNodeId) return;
     const docCtx = getActiveDocumentContext();
@@ -511,30 +616,70 @@ export function initNotesDrawer() {
       const hadNote = Boolean(node.note);
       node.note = textarea.value;
       const hasNote = Boolean(node.note);
-      // 🌟 备注指示符增删时必须标记布局脏状态以重算节点卡片宽度
       if (hadNote !== hasNote && docCtx) {
         docCtx.markLayoutDirty(node.id);
       }
       bus.emit(EVENTS.RENDER_APP);
       clearTimeout(noteSaveTimer);
-      noteSaveTimer = setTimeout(() => saveSnapshot(), 500);
+      noteSaveTimer = setTimeout(() => flushPendingNote(), 500);
       updateNotesStats(textarea.value);
+
+      clearTimeout(inputDebounceTimer);
+      inputDebounceTimer = setTimeout(() => {
+        pushNoteHistory(textarea);
+      }, 300);
+    }
+  });
+
+  textarea?.addEventListener("keydown", (e) => {
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+    // 🌟 1. 撤销快捷键 (Cmd+Z / Ctrl+Z)
+    if (isCmdOrCtrl && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      e.stopPropagation();
+      undoNote(textarea);
+      return;
+    }
+
+    // 🌟 2. 重做快捷键 (Cmd+Shift+Z / Ctrl+Shift+Z / Ctrl+Y)
+    if ((isCmdOrCtrl && e.shiftKey && (e.key === "z" || e.key === "Z")) ||
+        (!isMac && isCmdOrCtrl && (e.key === "y" || e.key === "Y"))) {
+      e.preventDefault();
+      e.stopPropagation();
+      redoNote(textarea);
+      return;
+    }
+
+    // 🌟 3. Tab 键缩进插入 2 个空格，并记录进历史栈支持撤销
+    if (e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      pushNoteHistory(textarea);
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const val = textarea.value;
+      textarea.value = val.substring(0, start) + "  " + val.substring(end);
+      textarea.selectionStart = textarea.selectionEnd = start + 2;
+      textarea.dispatchEvent(new Event("input"));
+      pushNoteHistory(textarea, true);
+      return;
     }
   });
 
   btnClear?.addEventListener("click", () => {
     if (!activeNoteNodeId || !textarea) return;
-    textarea.value = "";
+    pushNoteHistory(textarea);
+    flushPendingNote();
     const docCtx = getActiveDocumentContext();
     const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
-    if (node) {
-      delete node.note;
-      if (docCtx) {
-        docCtx.markLayoutDirty(node.id);
-      }
-      saveSnapshot();
+    if (node && node.note) {
+      commitNoteChange(node, "");
       bus.emit(EVENTS.RENDER_APP);
     }
+    textarea.value = "";
+    pushNoteHistory(textarea, true);
     updateNotesStats("");
     switchTab("preview");
     showToast("🗑️ 备注已清除");
@@ -543,6 +688,7 @@ export function initNotesDrawer() {
   document.querySelectorAll(".note-tool-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       if (!textarea) return;
+      pushNoteHistory(textarea); // 插入前记录快照，以便随时撤销
       const tag = btn.dataset.tag;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
@@ -568,7 +714,10 @@ export function initNotesDrawer() {
 
       textarea.value = text.substring(0, start) + rep + text.substring(end);
       textarea.focus();
+      const newPos = start + rep.length;
+      textarea.setSelectionRange(newPos, newPos);
       textarea.dispatchEvent(new Event("input"));
+      pushNoteHistory(textarea, true); // 插入后记录快照
     });
   });
 }
@@ -581,6 +730,7 @@ export function openNotesDrawer(node) {
   }
   flushPendingNote();
   activeNoteNodeId = targetNode.id;
+  committedNoteText = targetNode.note || "";
 
   const drawer = document.getElementById("notes-drawer");
   const title = document.getElementById("notes-drawer-title");
@@ -590,6 +740,7 @@ export function openNotesDrawer(node) {
 
   if (title) title.innerText = (targetNode.icon ? targetNode.icon + " " : "") + (targetNode.text || "节点备注");
   textarea.value = targetNode.note || "";
+  resetNoteHistory(textarea.value);
 
   if (preview) {
     preview.innerHTML = DOMPurify.sanitize(renderMarkdown(targetNode.note || ""));
@@ -606,4 +757,5 @@ export function closeNotesDrawer() {
   const drawer = document.getElementById("notes-drawer");
   if (drawer) drawer.classList.add("hidden");
   activeNoteNodeId = null;
+  committedNoteText = null;
 }

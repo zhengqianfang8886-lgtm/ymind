@@ -1,5 +1,28 @@
+/**
+ * 🌟 统一清理画布活动瞬态交互与 DOM 浮层闭包
+ */
+export function cleanupActiveTransientUI() {
+  closeNotesDrawer();
+  const inlineEditor = document.getElementById("inline-editor");
+  if (inlineEditor && !inlineEditor.classList.contains("hidden")) {
+    inlineEditor.blur();
+  }
+  state.editingNodeId = null;
+
+  document.getElementById("menu-node-attributes")?.classList.add("hidden");
+  document.getElementById("btn-node-attributes")?.classList.remove("active");
+  document.getElementById("apple-context-menu")?.classList.add("hidden");
+  document.getElementById("apple-tab-context-menu")?.classList.add("hidden");
+
+  setDropIndicator(null);
+  resetBreadcrumbSig();
+
+  const outlinerSlice = document.querySelector(".outliner-virtual-slice");
+  if (outlinerSlice) outlinerSlice.innerHTML = "";
+}
+
 import { saveSessionImmediate, scheduleSessionSave } from "../storage/session.js";
-import { state, getActiveTab, createNewTab, closeTab } from "./state.js";
+import { state, getActiveTab, createNewTab, closeTab, deepSeverTree } from "./state.js";
 import { camera, smartCenterOnSelectedNode } from "./camera.js";
 import { syncInspectorUi, applyCanvasThemeToBody } from "../ui/inspector.js";
 import { recordRecentDoc } from "../ui/home.js";
@@ -7,6 +30,7 @@ import { showLockScreen, hideLockScreenDOM, updateSecurityDockStatus } from "../
 import { appConfirm, showToast } from "../ui/dialog.js";
 import { bus, EVENTS } from "./event-bus.js";
 import { closeNotesDrawer } from "../ui/notes.js";
+import { ensureLayoutReady, resetBreadcrumbSig, setDropIndicator } from "../render/render.js";
 
 const tabList = document.getElementById("tab-list");
 let isTabDelegationBound = false;
@@ -30,12 +54,22 @@ export function activateTab(tabId) {
   }
 
   closeNotesDrawer();
+  // 🌟 BUG-03 防御：切换标签时强制提交正在编辑的输入框，杜绝旧文档闭包寄生到新文档画布
+  const inlineEditor = document.getElementById("inline-editor");
+  if (inlineEditor && !inlineEditor.classList.contains("hidden")) {
+    inlineEditor.blur();
+  }
+  state.editingNodeId = null;
 
   const prev = getActiveTab();
   if (prev) prev.camera = { ...camera.transform };
 
+  // 统一释放旧文档瞬态浮层、四叉树缓存并清理大纲 DOM 闭包
+  cleanupActiveTransientUI();
+
   state.activeTabId = tabId;
   state.isLayoutDirty = true;
+  targetTab.isLayoutDirty = true;
 
   camera.transform = { ...targetTab.camera };
   if (targetTab.isEncrypted && targetTab._isLocked) showLockScreen(targetTab);
@@ -44,11 +78,15 @@ export function activateTab(tabId) {
   const btnRecall = document.getElementById("btn-active-recall");
   if (btnRecall) btnRecall.classList.toggle("active-mode", Boolean(targetTab.isRecallMode));
 
+  try {
+    ensureLayoutReady(targetTab, true);
+  } catch {}
+
   renderTabBar();
   bus.emit(EVENTS.RENDER_APP);
   syncInspectorUi();
   updateSecurityDockStatus();
-  scheduleSessionSave(); // 🌟 使用防抖暂存，避免切标签瞬间在主线程同步序列化卡顿
+  scheduleSessionSave();
 }
 
 export function switchTabRelative(delta) {
@@ -168,6 +206,8 @@ export function renderTabBar() {
     const lockIcon = t.isEncrypted ? `<span style="font-size:10px;margin-right:2px;">🔒</span>` : "";
 
     const safeDisplayName = String(displayName).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+    // 🌟 BUG-07 防御：对 tab.id 转义，阻断关闭按钮 data-close-id 逃逸
+    const safeTabId = String(t.id).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
     const nextContentKey = `${Boolean(t.isDirty || isDraft)}_${Boolean(t.isEncrypted)}_${safeDisplayName}`;
     if (item._contentKey !== nextContentKey) {
       item._contentKey = nextContentKey;
@@ -175,7 +215,7 @@ export function renderTabBar() {
         ${dirtyDot}
         ${lockIcon}
         <span class="tab-title-text">${safeDisplayName}</span>
-        <span class="tab-close-btn" data-close-id="${t.id}" title="关闭标签页">✕</span>
+        <span class="tab-close-btn" data-close-id="${safeTabId}" title="关闭标签页">✕</span>
       `;
     }
   });
@@ -323,12 +363,22 @@ let tabContextMenuTargetId = null;
 
 function destroyTabResources(t) {
   if (!t) return;
+  if (t._context) {
+    t._context.dispose();
+    t._context = null;
+  }
   if (t.spatialIndex) {
     t.spatialIndex.clear();
     t.spatialIndex = null;
   }
-  t.mindData = null;
+  if (t.mindData) {
+    deepSeverTree(t.mindData);
+    t.mindData = null;
+  }
+  t.selectedIds?.clear();
   t.historyStack = [];
+  t.versions = [];
+  delete t.history;
   t.camera = null;
 }
 

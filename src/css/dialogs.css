@@ -699,13 +699,119 @@
 .note-callout.todo { background: rgba(175, 82, 222, 0.08); border-color: var(--apple-purple); color: #7e22ce; }
 .note-callout-body { color: var(--text-primary); }
 
-.code-block-wrapper { border-radius: 12px; -webkit-corner-smoothing: 0.62; overflow: hidden; background: #0f172a; margin: 10px 0; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-.code-block-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 10px; background: rgba(255, 255, 255, 0.05); border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
-.code-lang-tag { font-size: 9.5px; font-weight: 700; color: #94a3b8; letter-spacing: 0.04em; }
-.btn-copy-code { background: transparent; border: none; color: #94a3b8; font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px; transition: all 0.12s; }
-.btn-copy-code:hover { color: #ffffff; background: rgba(255, 255, 255, 0.12); }
-.notes-preview-rendered pre { margin: 0; padding: 10px 14px; overflow-x: auto; }
-.notes-preview-rendered pre code { color: #38bdf8; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; line-height: 1.5; }
+/* 🌟 Apple macOS 极客质感现代代码块 */
+.code-block-wrapper {
+  border-radius: 11px;
+  -webkit-corner-smoothing: 0.62;
+  overflow: hidden;
+  background: #f6f8fa;
+  margin: 12px 0;
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  min-height: 28px;
+  box-sizing: border-box;
+}
+.code-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-mac-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mac-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.mac-dot-red { background: #ff5f56; border: 0.5px solid rgba(0, 0, 0, 0.12); }
+.mac-dot-yellow { background: #ffbd2e; border: 0.5px solid rgba(0, 0, 0, 0.12); }
+.mac-dot-green { background: #27c93f; border: 0.5px solid rgba(0, 0, 0, 0.12); }
+.code-lang-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+.btn-copy-code {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.12s ease;
+}
+.btn-copy-code:hover {
+  color: var(--apple-blue);
+  background: var(--apple-blue-subtle);
+  border-color: rgba(0, 113, 227, 0.25);
+}
+.notes-preview-rendered pre {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  background: transparent;
+}
+.notes-preview-rendered pre code {
+  color: #24292f;
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+}
+
+/* 语法高亮分词 */
+.tok-kw { color: #cf222e; font-weight: 600; }
+.tok-str { color: #0a3069; }
+.tok-num { color: #0550ae; }
+.tok-com { color: #6e7781; font-style: italic; }
+
+[data-theme="dark"] .code-block-wrapper {
+  background: #161b22;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+[data-theme="dark"] .code-block-header {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+[data-theme="dark"] .btn-copy-code {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+[data-theme="dark"] .btn-copy-code:hover {
+  background: rgba(0, 113, 227, 0.25);
+  color: #ffffff;
+}
+[data-theme="dark"] .notes-preview-rendered pre code {
+  color: #e6edf3;
+}
+[data-theme="dark"] .tok-kw { color: #ff7b72; }
+[data-theme="dark"] .tok-str { color: #a5d6ff; }
+[data-theme="dark"] .tok-num { color: #79c0ff; }
+[data-theme="dark"] .tok-com { color: #8b949e; }
 
 .note-inline-code { background: rgba(0, 0, 0, 0.06); color: #c026d3; padding: 1.5px 5px; border-radius: 4px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .note-highlight { background: #fef08a; color: #854d0e; padding: 1px 4px; border-radius: 3px; font-weight: 500; }
@@ -727,3 +833,293 @@
 .notes-stats-bar { height: 32px; border-top: 0.5px solid rgba(0, 0, 0, 0.06); display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; padding-top: 4px; margin-top: auto; }
 .btn-start-note { margin-top: 14px; padding: 8px 20px; border-radius: 12px; -webkit-corner-smoothing: 0.62; background: linear-gradient(180deg, #0077ed 0%, #0062c4 100%); color: #fff; border: none; font-size: 12.5px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 113, 227, 0.35); transition: transform 0.12s ease; }
 .btn-start-note:hover { transform: translateY(-1px); }
+
+/* ==========================================================================
+   📂 高定 Apple 原生内置文件管理器 (In-App File Picker) - 升级版
+   ========================================================================== */
+.apple-file-picker-card {
+  width: 820px !important;
+  max-width: 95vw !important;
+  height: 560px !important;
+  max-height: 92vh !important;
+  padding: 16px 22px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.fp-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fp-nav-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.035);
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="dark"] .fp-nav-toolbar {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.fp-tool-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.12s ease;
+}
+
+.fp-tool-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+}
+
+.fp-tool-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.fp-breadcrumb-trail {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  font-size: 12px;
+  font-weight: 500;
+  scrollbar-width: none;
+  min-width: 0;
+  cursor: text;
+}
+.fp-breadcrumb-trail::-webkit-scrollbar { display: none; }
+
+.fp-breadcrumb-crumb {
+  padding: 2px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--apple-blue);
+  white-space: nowrap;
+}
+
+.fp-breadcrumb-crumb:hover {
+  background: var(--apple-blue-subtle);
+}
+
+.fp-breadcrumb-crumb.current {
+  color: var(--text-primary);
+  font-weight: 700;
+  cursor: default;
+}
+
+.fp-path-direct-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 2px 4px;
+  font-family: monospace;
+}
+
+.fp-body {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  min-height: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+[data-theme="dark"] .fp-body {
+  background: rgba(20, 25, 36, 0.7);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.fp-sidebar {
+  width: 170px;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.015);
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+[data-theme="dark"] .fp-sidebar {
+  border-right-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.fp-sidebar-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  padding: 6px 8px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fp-place-item {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fp-place-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary);
+}
+
+.fp-place-item.active {
+  background: var(--apple-blue);
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.fp-content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fp-table-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+[data-theme="dark"] .fp-table-header {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.fp-th-col {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fp-th-col:hover {
+  color: var(--text-primary);
+}
+
+.fp-file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fp-file-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+  gap: 8px;
+  user-select: none;
+  transition: background 0.1s ease;
+}
+
+.fp-file-row:hover {
+  background: rgba(0, 113, 227, 0.06);
+}
+
+.fp-file-row.selected {
+  background: var(--apple-blue-subtle) !important;
+  color: var(--apple-blue);
+  font-weight: 600;
+}
+
+.fp-file-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.fp-file-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.fp-file-date {
+  width: 130px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.fp-file-size {
+  width: 75px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.fp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.fp-filter-pill {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.fp-filter-pill.active {
+  background: var(--apple-blue);
+  color: #fff;
+  border-color: var(--apple-blue);
+}

@@ -56,26 +56,7 @@ export function initIconPicker(renderApp) {
   function applyIconToSelection(iconChar) {
     const docCtx = getActiveDocumentContext();
     if (!docCtx || !docCtx.selectedIds || docCtx.selectedIds.size === 0) return;
-    const subCommands = [];
-    docCtx.selectedIds.forEach(id => {
-      const node = findNode(id, docCtx.mindData);
-      if (node) {
-        subCommands.push({
-          type: COMMANDS.UPDATE_ATTRS,
-          nodeId: node.id,
-          oldAttrs: { icon: node.icon || null },
-          newAttrs: { icon: iconChar }
-        });
-      }
-    });
-
-    if (subCommands.length === 1) {
-      docCtx.executeCommand(subCommands[0], true);
-    } else if (subCommands.length > 1) {
-      docCtx.executeCompoundCommand(subCommands, true);
-    }
-
-    docCtx.isLayoutDirty = true;
+    docCtx.batchUpdateAttrs(docCtx.selectedIds, () => ({ icon: iconChar }), true);
     syncInspectorIcons();
     bus.emit(EVENTS.RENDER_APP);
   }

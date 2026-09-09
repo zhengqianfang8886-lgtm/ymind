@@ -21,7 +21,7 @@ export async function createVersionSnapshot(tab = getActiveTab(), trigger = "man
   const currentContentJson = JSON.stringify(tab.mindData);
   if (trigger === "auto" && tab.versions.length > 0) {
     const lastSnap = tab.versions[0];
-    if (lastSnap._contentJson === currentContentJson || JSON.stringify(lastSnap.mindData) === currentContentJson) {
+    if (lastSnap._contentJson === currentContentJson) {
       return null;
     }
   }
@@ -46,7 +46,7 @@ export async function createVersionSnapshot(tab = getActiveTab(), trigger = "man
   };
 
   tab.versions.unshift(newSnapshot);
-  if (tab.versions.length > 30) tab.versions.pop();
+  if (tab.versions.length > 10) tab.versions.pop();
   
   // 🌟 写入 IndexedDB 本地沙箱永久存档，供时光机查询与崩溃自愈
   idbSaveSnapshot(newSnapshot).catch(() => {});
@@ -85,6 +85,7 @@ export function restoreSnapshot(snapId, mode = "new_tab", renderCallback) {
   targetTab.historyIndex = 0;
   delete targetTab.history;
   targetTab.isDirty = true;
+  targetTab._skipAnimation = true;
 
   if (typeof renderCallback === "function") {
     renderCallback();
@@ -313,8 +314,20 @@ export function restartAutoSaveEngine(renderApp) {
     if (!state.tabs || state.tabs.length === 0) return;
     for (let i = 0; i < state.tabs.length; i++) {
       const tab = state.tabs[i];
-      if (tab.isDirty && tab.mindData && !tab.isEncrypted && !tab._isLocked) {
-        await createVersionSnapshot(tab, "auto");
+      if (tab && tab.isDirty && !tab._isLocked) {
+        // 🌟 核心修复：对已绑定本地物理路径的文档，真正静默写入磁盘物理文件，杜绝假自动保存
+        if (tab.filePath) {
+          try {
+            const { performSave } = await import("../ui/events.js");
+            await performSave(tab, true);
+          } catch (err) {
+            console.warn("[AutoSave] Failed to save physical file:", err);
+          }
+        }
+        // 未加密文档同时建立时光机版本快照
+        if (tab.mindData && !tab.isEncrypted) {
+          await createVersionSnapshot(tab, "auto");
+        }
       }
     }
   }, intervalSec * 1000);

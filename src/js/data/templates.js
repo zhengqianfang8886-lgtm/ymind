@@ -228,13 +228,8 @@ export const TEMPLATES = {
     layout: "mindmap",
     data: {
       id: "root",
-      text: "中心议题",
-      children: [
-        { id: "s1_1", text: "维度一：核心背景", children: [{ id: "s1_1_1", text: "现状梳理", children: [] }, { id: "s1_1_2", text: "关键瓶颈", children: [] }] },
-        { id: "s1_2", text: "维度二：战略目标", children: [{ id: "s1_2_1", text: "短期交付物", children: [] }, { id: "s1_2_2", text: "长期愿景", children: [] }] },
-        { id: "s1_3", text: "维度三：资源盘点", children: [{ id: "s1_3_1", text: "团队与预算", children: [] }, { id: "s1_3_2", text: "技术基建", children: [] }] },
-        { id: "s1_4", text: "维度四：潜在风险", children: [{ id: "s1_4_1", text: "合规与安全", children: [] }, { id: "s1_4_2", text: "应对预案", children: [] }] }
-      ]
+      text: "中心主题",
+      children: []
     }
   },
   "logic-right-blank": {
@@ -246,27 +241,8 @@ export const TEMPLATES = {
     layout: "logic-right",
     data: {
       id: "root",
-      text: "核心落地工程",
-      children: [
-        {
-          id: "lr_1", text: "阶段一：需求收敛与技术评审", priority: "P1", children: [
-            { id: "lr_1_1", text: "业务痛点调研与用例梳理", children: [] },
-            { id: "lr_1_2", text: "架构设计与存储选型评审", children: [] }
-          ]
-        },
-        {
-          id: "lr_2", text: "阶段二：核心模块研发冲刺", priority: "P2", children: [
-            { id: "lr_2_1", text: "底层引擎改造与单元测试", children: [] },
-            { id: "lr_2_2", text: "前后端接口联调", children: [] }
-          ]
-        },
-        {
-          id: "lr_3", text: "阶段三：灰度发布与效果观测", priority: "P3", children: [
-            { id: "lr_3_1", text: "全链路监控与性能指标打点", children: [] },
-            { id: "lr_3_2", text: "复盘与文档沉淀", children: [] }
-          ]
-        }
-      ]
+      text: "中心主题",
+      children: []
     }
   },
   "logic-left-blank": {
@@ -278,27 +254,8 @@ export const TEMPLATES = {
     layout: "logic-left",
     data: {
       id: "root",
-      text: "故障与现象根因",
-      children: [
-        {
-          id: "ll_1", text: "直接表象：系统响应超时", children: [
-            { id: "ll_1_1", text: "网关层 P99 抖动飙升", children: [] },
-            { id: "ll_1_2", text: "下游数据库连接池耗尽", children: [] }
-          ]
-        },
-        {
-          id: "ll_2", text: "中间机理：慢查询导致锁等待", children: [
-            { id: "ll_2_1", text: "缺失复合联合索引", children: [] },
-            { id: "ll_2_2", text: "未加分页的大批量深度扫描", children: [] }
-          ]
-        },
-        {
-          id: "ll_3", text: "根因定位：发版缺失压测拦截", priority: "P1", children: [
-            { id: "ll_3_1", text: "CI/CD 流水线未集成慢 SQL 审查", children: [] },
-            { id: "ll_3_2", text: "生产变更发布时间窗口重叠", children: [] }
-          ]
-        }
-      ]
+      text: "中心主题",
+      children: []
     }
   },
   "org-down-blank": {
@@ -310,27 +267,8 @@ export const TEMPLATES = {
     layout: "org-down",
     data: {
       id: "root",
-      text: "产研委员会 / CTO",
-      children: [
-        {
-          id: "org_1", text: "技术架构部", children: [
-            { id: "org_1_1", text: "基础设施组 (K8s/DB)", children: [] },
-            { id: "org_1_2", text: "核心计算引擎组", children: [] }
-          ]
-        },
-        {
-          id: "org_2", text: "产品与体验部", children: [
-            { id: "org_2_1", text: "用户体验 UX/UI", children: [] },
-            { id: "org_2_2", text: "商业化产品组", children: [] }
-          ]
-        },
-        {
-          id: "org_3", text: "质量效能部", children: [
-            { id: "org_3_1", text: "自动化回归平台", children: [] },
-            { id: "org_3_2", text: "安全合规与红蓝演练", children: [] }
-          ]
-        }
-      ]
+      text: "中心主题",
+      children: []
     }
   },
 

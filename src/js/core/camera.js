@@ -1,4 +1,4 @@
-import { state, getActiveTab, findNode, findParent, getPrimarySelectedNode } from "./state.js";
+import { state, getActiveTab, findNode, findParent, getPrimarySelectedNode, walkTree } from "./state.js";
 import { getGlobalSettings } from "./config.js";
 import { bus, EVENTS } from "./event-bus.js";
 import { computeLayout, assignCoordinates } from "../geometry/layout.js";
@@ -190,16 +190,14 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
   if (isTargetRoot) {
     // 🌟 1. 全图全景回正：精确测算全景包围盒，自适应缩放呈现全貌
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    function scanTree(n) {
+    for (const n of walkTree(currentRoot, { skipCollapsed: true })) {
       if (n.x !== undefined && n.y !== undefined) {
         minX = Math.min(minX, n.x);
         maxX = Math.max(maxX, n.x + (n.width || 80));
         minY = Math.min(minY, n.y);
         maxY = Math.max(maxY, n.y + (n.height || 36));
       }
-      if (n.children && !n.collapsed) n.children.forEach(scanTree);
     }
-    scanTree(currentRoot);
 
     if (minX === Infinity) {
       minX = 0; maxX = currentRoot.width || 120;
@@ -218,16 +216,14 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
   } else if (hasExpandedChildren) {
     // 🌟 2. 展开分支群组聚焦：兼顾包围盒与用户当前阅读比例，拒绝突兀暴缩
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    function scanBranch(n) {
+    for (const n of walkTree(targetNode, { skipCollapsed: true })) {
       if (n.x !== undefined && n.y !== undefined) {
         minX = Math.min(minX, n.x);
         maxX = Math.max(maxX, n.x + (n.width || 80));
         minY = Math.min(minY, n.y);
         maxY = Math.max(maxY, n.y + (n.height || 36));
       }
-      if (n.children && !n.collapsed) n.children.forEach(scanBranch);
     }
-    scanBranch(targetNode);
 
     const padX = 90, padY = 70;
     const totalW = (maxX - minX) + padX * 2;
@@ -338,85 +334,104 @@ export function locateFocusedNode(nodeOrId = null, animated = true, customCtx = 
   const nodeScreenW = (targetNode.width || 80) * currentScale;
   const nodeScreenH = (targetNode.height || 36) * currentScale;
 
+  const nodeCenterScreenX = nodeScreenX + nodeScreenW / 2;
+  const nodeCenterScreenY = nodeScreenY + nodeScreenH / 2;
+
+  let glanceX = nodeScreenX;
+  let glanceY = nodeScreenY;
+  let glanceW = nodeScreenW;
+  let glanceH = nodeScreenH;
+
   const isCenter = intent === true || intent === "center";
   const isCreate = intent === "create";
   const isKeyboard = intent === "keyboard";
 
-  let deltaX = 0;
+  // 分支第一级子节点边界预判
+  if (!isCenter && (isKeyboard || isCreate) && targetNode.children && !targetNode.collapsed && targetNode.children.length > 0) {
+    const firstChild = targetNode.children[0];
+    const lastChild = targetNode.children[targetNode.children.length - 1];
+    if (firstChild && firstChild.x !== undefined && lastChild && lastChild.y !== undefined) {
+      const branchTop = Math.min(nodeScreenY, firstChild.y * currentScale + camera.transform.y);
+      const branchBottom = Math.max(nodeScreenY + nodeScreenH, (lastChild.y + (lastChild.height || 36)) * currentScale + camera.transform.y);
+      glanceY = branchTop;
+      glanceH = Math.min(screenH * 0.72, branchBottom - branchTop);
+
+      if (targetNode.branchDirection === "right") {
+        const childRight = (firstChild.x + Math.min(firstChild.width || 80, 160)) * currentScale + camera.transform.x;
+        glanceW = Math.max(nodeScreenW, childRight - nodeScreenX);
+      } else if (targetNode.branchDirection === "left") {
+        const childLeft = (firstChild.x + Math.max(0, (firstChild.width || 80) - 160)) * currentScale + camera.transform.x;
+        glanceX = Math.min(nodeScreenX, childLeft);
+        glanceW = (nodeScreenX + nodeScreenW) - glanceX;
+      }
+    }
+  }
+
+    let deltaX = 0;
   let deltaY = 0;
+  let springTension = 145;
+  let springFriction = 24;
 
   if (isCenter) {
-    // 🌟 策略 4 [搜索/双链/聚焦]：平滑全局居中回正
-    deltaX = usableCenterX - (nodeScreenX + nodeScreenW / 2);
-    deltaY = usableCenterY - (nodeScreenY + nodeScreenH / 2);
+    // 🌟 策略 1 [搜索/双链/全局聚焦]：明确的全局居中定焦
+    deltaX = usableCenterX - nodeCenterScreenX;
+    deltaY = usableCenterY - nodeCenterScreenY;
+    springTension = 150;
+    springFriction = 24;
   } else if (isCreate) {
-    // 🌟 策略 2 [Tab/Enter 新建]：为后续连续输入预留前瞻留白 (Forward Cushion ~12%)
-    const cushionX = Math.round(usableW * 0.12);
-    const cushionY = Math.round(screenH * 0.10);
+    // 🌟 策略 2 [Tab/Enter 新建分支]：前瞻留白 (Forward Cushion ~14%)
+    const cushionX = Math.round(usableW * 0.14);
+    const cushionY = Math.round(screenH * 0.08);
     const targetDir = targetNode.branchDirection;
 
     if (targetDir === "right") {
-      const rightBoundary = usableW - 48;
-      if (nodeScreenX + nodeScreenW + cushionX > rightBoundary) {
-        deltaX = rightBoundary - (nodeScreenX + nodeScreenW + cushionX);
+      const rightBoundary = usableW - 56;
+      if (glanceX + glanceW + cushionX > rightBoundary) {
+        deltaX = rightBoundary - (glanceX + glanceW + cushionX);
       }
     } else if (targetDir === "left") {
-      const leftBoundary = 48;
-      if (nodeScreenX - cushionX < leftBoundary) {
-        deltaX = leftBoundary - (nodeScreenX - cushionX);
+      const leftBoundary = 56;
+      if (glanceX - cushionX < leftBoundary) {
+        deltaX = leftBoundary - (glanceX - cushionX);
       }
     }
 
-    if (nodeScreenY < 48) {
-      deltaY = 48 - nodeScreenY;
-    } else if (nodeScreenY + nodeScreenH + cushionY > screenH - 48) {
-      deltaY = (screenH - 48) - (nodeScreenY + nodeScreenH + cushionY);
+    if (glanceY < 56) {
+      deltaY = 56 - glanceY;
+    } else if (glanceY + glanceH + cushionY > screenH - 56) {
+      deltaY = (screenH - 56) - (glanceY + glanceH + cushionY);
     }
-  } else if (isKeyboard) {
-    // 🌟 策略 3 [方向键遍历]：编辑器级边界吸附微推 (Edge Clamp)
-    const marginX = Math.min(64, Math.max(36, usableW * 0.05));
-    const marginY = Math.min(64, Math.max(36, screenH * 0.06));
-
-    if (nodeScreenX < marginX) {
-      deltaX = marginX - nodeScreenX;
-    } else if (nodeScreenX + nodeScreenW > usableW - marginX) {
-      deltaX = (usableW - marginX) - (nodeScreenX + nodeScreenW);
-    }
-
-    if (nodeScreenY < marginY) {
-      deltaY = marginY - nodeScreenY;
-    } else if (nodeScreenY + nodeScreenH > screenH - marginY) {
-      deltaY = (screenH - marginY) - (nodeScreenY + nodeScreenH);
-    }
+    springTension = 160;
+    springFriction = 25;
   } else {
-    // 🌟 策略 1 [鼠标点击]：宽死区极度克制，节点基本在视口内则绝对静止
-    const visibleLeft = Math.max(0, nodeScreenX);
-    const visibleRight = Math.min(usableW, nodeScreenX + nodeScreenW);
-    const visibleTop = Math.max(0, nodeScreenY);
-    const visibleBottom = Math.min(screenH, nodeScreenY + nodeScreenH);
+    // 🌟 统一采用方向键验证优秀的「视口边缘吸附 (Edge Clamp)」算法
+    // 1. 节点在视口内清晰可见时：相机绝对静止 (0位移，彻底消除鼠标点击的频繁摇晃)
+    // 2. 仅当节点被侧边栏遮挡、触碰视口边界或在屏幕外时：最小平滑推入舒适视野内
+    const marginX = Math.min(80, Math.max(48, usableW * 0.08));
+    const marginY = Math.min(72, Math.max(40, screenH * 0.08));
+    const stepBuffer = 36;
 
-    const visibleW = Math.max(0, visibleRight - visibleLeft);
-    const visibleH = Math.max(0, visibleBottom - visibleTop);
-    const ratioW = nodeScreenW > 0 ? (visibleW / nodeScreenW) : 1;
-    const ratioH = nodeScreenH > 0 ? (visibleH / nodeScreenH) : 1;
-
-    // 只要有 70% 露出且未被侧边栏严重遮挡，相机彻底静止，杜绝抢焦点与视觉摇晃
-    if (ratioW >= 0.70 && ratioH >= 0.70) {
-      return;
+    if (glanceX < marginX) {
+      deltaX = (marginX + stepBuffer) - glanceX;
+    } else if (glanceX + glanceW > usableW - marginX) {
+      deltaX = (usableW - marginX - stepBuffer) - (glanceX + glanceW);
     }
 
-    // 严重遮挡时仅轻柔推入完整露出 (36px 安全边距)
-    const pad = 36;
-    if (nodeScreenX < pad) {
-      deltaX = pad - nodeScreenX;
-    } else if (nodeScreenX + nodeScreenW > usableW - pad) {
-      deltaX = (usableW - pad) - (nodeScreenX + nodeScreenW);
+    if (glanceY < marginY) {
+      deltaY = (marginY + stepBuffer) - glanceY;
+    } else if (glanceY + glanceH > screenH - marginY) {
+      deltaY = (screenH - marginY - stepBuffer) - (glanceY + glanceH);
     }
+    springTension = 170;
+    springFriction = 26;
+  }
 
-    if (nodeScreenY < pad) {
-      deltaY = pad - nodeScreenY;
-    } else if (nodeScreenY + nodeScreenH > screenH - pad) {
-      deltaY = (screenH - pad) - (nodeScreenY + nodeScreenH);
+  // 超宽节点阅读起始侧保护
+  if (nodeScreenW > usableW - 72) {
+    if (targetNode.branchDirection === "left") {
+      deltaX = (usableW - 48) - (nodeScreenX + nodeScreenW);
+    } else {
+      deltaX = 48 - nodeScreenX;
     }
   }
 
@@ -426,7 +441,7 @@ export function locateFocusedNode(nodeOrId = null, animated = true, customCtx = 
   const targetY = camera.transform.y + deltaY;
 
   if (animated && followMode === "smooth") {
-    springAnimateTo(targetX, targetY, currentScale, 190, 24);
+    springAnimateTo(targetX, targetY, currentScale, springTension, springFriction);
   } else {
     stopAllCameraAnimations();
     camera.transform.x = targetX;

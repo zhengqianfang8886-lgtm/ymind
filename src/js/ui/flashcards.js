@@ -1,3 +1,11 @@
+let flashcardsAC = null;
+
+export function destroyFlashcards() {
+  if (flashcardsAC) {
+    flashcardsAC.abort();
+    flashcardsAC = null;
+  }
+}
 import { state, getActiveDocumentContext } from "../core/state.js";
 import { showToast, escapeHtml } from "./dialog.js";
 
@@ -26,6 +34,9 @@ export function toggleRecallMode(renderApp) {
 }
 
 export function initFlashcards(renderApp) {
+  destroyFlashcards();
+  flashcardsAC = new AbortController();
+  const signal = flashcardsAC.signal;
   const modal = document.getElementById("apple-flashcards-modal");
   if (!modal) return;
 
@@ -48,7 +59,7 @@ export function initFlashcards(renderApp) {
     else if (e.key === "2") rateCard("review");
     else if (e.key === "3") rateCard("mastered");
     else if (e.key === "Escape") closeFlashcardModal();
-  });
+  }, { signal });
 }
 
 export function openFlashcardModal() {

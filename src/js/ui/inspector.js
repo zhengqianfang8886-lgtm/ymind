@@ -14,32 +14,12 @@ function applyNodeStyle(updateFn, attrKeys = ['fontSize', 'fontWeight', 'fontSty
     ? Array.from(docCtx.selectedIds)
     : [docCtx.primarySelectedNode?.id || docCtx.focusedRootId || docCtx.mindData.id].filter(Boolean);
 
-  if (targetIds.length === 0) return;
-
-  const subCommands = [];
-  targetIds.forEach(id => {
-    const node = findNode(id, docCtx.mindData);
-    if (node) {
-      const oldAttrs = {};
-      attrKeys.forEach(k => { oldAttrs[k] = node[k]; });
-      updateFn(node);
-      const newAttrs = {};
-      attrKeys.forEach(k => { newAttrs[k] = node[k]; });
-
-      subCommands.push({
-        type: COMMANDS.UPDATE_ATTRS,
-        nodeId: node.id,
-        oldAttrs,
-        newAttrs
-      });
-    }
-  });
-
-  if (subCommands.length === 1) {
-    docCtx.executeCommand(subCommands[0], false);
-  } else if (subCommands.length > 1) {
-    docCtx.executeCompoundCommand(subCommands, false);
-  }
+  docCtx.batchUpdateAttrs(targetIds, (node) => {
+    updateFn(node);
+    const patches = {};
+    attrKeys.forEach(k => { patches[k] = node[k]; });
+    return patches;
+  }, false);
 
   invalidateFontCache();
   docCtx.isLayoutDirty = true;

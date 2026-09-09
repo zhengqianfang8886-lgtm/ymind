@@ -4,12 +4,24 @@ import { smartCenterOnSelectedNode, camera } from "../core/camera.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 import { copyNodeDeepLink, promptEditNodeLink, navigateDeepLink } from "./deep-link.js";
 import { toggleNodeTodo } from "./todo.js";
+import { copySelectedNodes, cutSelectedNodes, pasteNodes } from "../interaction/node-actions.js";
 import { promptEditDueDate } from "./due-date.js";
 
 const menu = document.getElementById("apple-context-menu");
 let targetNodeId = null;
+let contextMenuAC = null;
+
+export function destroyContextMenu() {
+  if (contextMenuAC) {
+    contextMenuAC.abort();
+    contextMenuAC = null;
+  }
+}
 
 export function initContextMenu(renderApp) {
+  destroyContextMenu();
+  contextMenuAC = new AbortController();
+  const signal = contextMenuAC.signal;
   window.addEventListener("contextmenu", (e) => {
     const isInput = e.target && (e.target.closest("input, textarea, select, [contenteditable=true]") || e.target.isContentEditable);
     if (!isInput) {
@@ -39,7 +51,12 @@ export function initContextMenu(renderApp) {
 
     targetNodeId = node.id;
     const docCtx = getActiveDocumentContext();
-    if (docCtx) docCtx.selectNode(targetNodeId);
+    // 🌟 若右键点击的节点已处于多选集合中，保留完整选区；否则切换为单选
+    if (docCtx) {
+      if (!docCtx.selectedIds?.has(targetNodeId)) {
+        docCtx.selectNode(targetNodeId);
+      }
+    }
     bus.emit(EVENTS.RENDER_APP);
 
     if (!menu) return;
@@ -55,13 +72,13 @@ export function initContextMenu(renderApp) {
     menu.style.left = `${posX}px`;
     menu.style.top = `${posY}px`;
     menu.classList.remove("hidden");
-  });
+  }, { signal });
 
   window.addEventListener("mousedown", (e) => {
     if (menu && !menu.contains(e.target)) {
       menu.classList.add("hidden");
     }
-  });
+  }, { signal });
 
   if (menu) {
     menu.querySelectorAll(".context-menu-item").forEach(item => {
@@ -82,39 +99,11 @@ function handleMenuAction(action, renderApp) {
   if (!node) return;
 
   if (action === "copy") {
-    state.clipboardBranch = sanitizeTreeForHistory(node);
+    copySelectedNodes(docCtx, node);
   } else if (action === "cut") {
-    if (node.id === docCtx.focusedRootId) return;
-    state.clipboardBranch = sanitizeTreeForHistory(node);
-    const parent = findParent(node.id, docCtx.mindData);
-    if (parent) {
-      const idx = parent.children.findIndex(c => c.id === node.id);
-      docCtx.executeCommand({
-        type: COMMANDS.REMOVE_NODE,
-        nodeId: node.id,
-        oldParentId: parent.id,
-        oldIndex: idx,
-        oldNode: node
-      });
-      docCtx.selectNode(parent.id);
-    }
+    cutSelectedNodes(docCtx, node);
   } else if (action === "paste") {
-    if (state.clipboardBranch) {
-      const cloned = sanitizeTreeForHistory(state.clipboardBranch);
-      function refreshIds(n) {
-        n.id = "node_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5);
-        if (n.children) n.children.forEach(refreshIds);
-      }
-      refreshIds(cloned);
-      docCtx.executeCommand({
-        type: COMMANDS.INSERT_NODE,
-        parentId: node.id,
-        index: node.children ? node.children.length : 0,
-        node: cloned
-      });
-      node.collapsed = false;
-      docCtx.selectNode(cloned.id);
-    }
+    pasteNodes(node, docCtx);
   } else if (action === "edit-link") {
     promptEditNodeLink(node);
   } else if (action === "toggle-todo") {
@@ -127,11 +116,16 @@ function handleMenuAction(action, renderApp) {
     if (node.link) navigateDeepLink(node.link);
   } else if (action === "toggle-collapse") {
     if (node.children && node.children.length > 0) {
+      const nextCollapsed = !node.collapsed;
+      import("../render/node-animator.js").then(({ nodeAnimator }) => {
+        if (nextCollapsed) nodeAnimator.collapseBranch(node);
+        else nodeAnimator.prepareExpand(node);
+      });
       docCtx.executeCommand({
         type: COMMANDS.UPDATE_ATTRS,
         nodeId: node.id,
         oldAttrs: { collapsed: Boolean(node.collapsed) },
-        newAttrs: { collapsed: !node.collapsed }
+        newAttrs: { collapsed: nextCollapsed }
       });
       docCtx.markLayoutDirty(node.id);
       bus.emit(EVENTS.RENDER_APP);

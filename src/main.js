@@ -4,7 +4,7 @@ import { state, getActiveTab, createNewTab, getActiveDocumentContext } from "./j
 import { getGlobalSettings, saveGlobalSettings, applyAppTheme } from "./js/core/config.js";
 import { render, resizeCanvas, syncInlineEditorPosition } from "./js/render/render.js";
 import { renderOutliner } from "./js/render/outliner.js";
-import { camera, requestTransformUpdate, locateFocusedNode } from "./js/core/camera.js";
+import { camera, requestTransformUpdate, locateFocusedNode, stopAllCameraAnimations } from "./js/core/camera.js";
 import { initEventListeners, updateSelectionOnly } from "./js/ui/events.js";
 import { syncInspectorUi, applyCanvasThemeToBody, initInspectorEvents } from "./js/ui/inspector.js";
 import { renderHomeHub, initHomeEvents, recordRecentDoc, switchHomeTab } from "./js/ui/home.js";
@@ -37,6 +37,7 @@ export function toggleAppTheme() {
 }
 
 export function showWorkspace() {
+  stopAllCameraAnimations();
   if (state.tabs.length === 0) createNewTab();
   if (homeView) homeView.classList.add("hidden");
   if (workspaceView) workspaceView.classList.remove("hidden");

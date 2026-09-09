@@ -123,16 +123,21 @@ export class QuadTree {
     return null;
   }
 
-  pickCollapseBadge(wx, wy, focusedRootId, isVisibleFn = null, hitRadius = 14) {
-    const pad = Math.max(14, hitRadius);
-    const searchBox = { x: wx - pad, y: wy - pad, width: pad * 2, height: pad * 2 };
+  pickCollapseBadge(wx, wy, focusedRootId, isVisibleFn = null, hitRadius = 18) {
+    const pad = Math.max(18, hitRadius);
+    // 扩大搜索包围盒，确保动画运动过程中的实时坐标均可被检索
+    const searchPad = Math.max(80, pad + 50);
+    const searchBox = { x: wx - searchPad, y: wy - searchPad, width: searchPad * 2, height: searchPad * 2 };
     const candidates = this.queryItems(searchBox);
     for (let i = 0; i < candidates.length; i++) {
       const n = candidates[i].node;
       if (isVisibleFn && !isVisibleFn(n.id)) continue;
       if (n.children && n.children.length > 0 && n.id !== focusedRootId) {
-        const bx = (n.branchDirection === "left") ? n.x : (n.x + n.width);
-        const by = n.y + n.height / 2;
+        // 优先基于肉眼可见的实时动画坐标计算，彻底杜绝快速连击判定脱靶
+        const nx = (n._curX !== undefined && Number.isFinite(n._curX)) ? n._curX : n.x;
+        const ny = (n._curY !== undefined && Number.isFinite(n._curY)) ? n._curY : n.y;
+        const bx = (n.branchDirection === "left") ? nx : (nx + n.width);
+        const by = ny + n.height / 2;
         if (Math.hypot(wx - bx, wy - by) <= pad) return n;
       }
     }
@@ -145,6 +150,22 @@ export class QuadTree {
     const r2x2 = r2.x + (r2.width || 0);
     const r2y2 = r2.y + (r2.height || 0);
     return !(r1x2 < r2.x || r1.x > r2x2 || r1y2 < r2.y || r1.y > r2y2);
+  }
+
+  
+  removeSubtree(node) {
+    if (!node) return;
+    const stack = [node];
+    while (stack.length > 0) {
+      const curr = stack.pop();
+      this.remove(curr.id);
+      curr._prevSpatial = null;
+      if (curr.children && Array.isArray(curr.children)) {
+        for (let i = 0; i < curr.children.length; i++) {
+          stack.push(curr.children[i]);
+        }
+      }
+    }
   }
 
   remove(id) {

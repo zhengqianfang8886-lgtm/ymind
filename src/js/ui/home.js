@@ -228,6 +228,7 @@ async function openOrSwitchDoc(doc, openWorkspace, renderHome) {
   const existingTab = state.tabs.find(t => t.filePath === docFilePath);
   if (existingTab) {
     state.activeTabId = existingTab.id;
+    existingTab._skipAnimation = true;
     if (existingTab.camera?.scale) {
       camera.transform.x = existingTab.camera.x;
       camera.transform.y = existingTab.camera.y;
@@ -262,6 +263,7 @@ function openTemplateDoc(tpl, openWorkspace) {
   const newTab = createNewTab(tpl.id);
   newTab.filePath = null; // 纯临时草稿，不写 recent
   newTab.isDirty = true;
+  newTab._skipAnimation = true;
   camera.transform = { ...newTab.camera };
   applyCanvasThemeToBody(newTab.canvasBgColor || "studio-white", newTab.canvasBgPattern || "dots");
   openWorkspace();
@@ -303,10 +305,10 @@ export function renderHomeHub(renderApp, openWorkspace) {
     if (quickGrid) {
       quickGrid.innerHTML = "";
       const top4 = [
-        TEMPLATES["ymind-feature-tour"],
         TEMPLATES["mindmap-blank"],
-        TEMPLATES["project-sprint"],
-        TEMPLATES["computer-systems"]
+        TEMPLATES["logic-right-blank"],
+        TEMPLATES["logic-left-blank"],
+        TEMPLATES["org-down-blank"]
       ];
 
       top4.forEach(tpl => {

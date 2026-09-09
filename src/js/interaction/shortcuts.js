@@ -1,8 +1,8 @@
-import { state, getPrimarySelectedNode, findNode, findParent, getActiveTab, sanitizeTreeForHistory, getActiveDocumentContext } from "../core/state.js";
+import { state, getPrimarySelectedNode, findNode, findParent, getAncestors, getActiveTab, sanitizeTreeForHistory, getActiveDocumentContext } from "../core/state.js";
 import { undo, redo, executeCommand, executeCompoundCommand, COMMANDS } from "../core/history.js";
 import { locateFocusedNode, smartAdaptiveCenter, zoomViewportByFactor, resetZoom100 } from "../core/camera.js";
 import { syncInspectorUi } from "../ui/inspector.js";
-import { addChildNode, addSiblingNode, deleteSelectedNodes, markDirtyAndRefresh } from "./node-actions.js";
+import { addChildNode, addSiblingNode, deleteSelectedNodes, markDirtyAndRefresh, copySelectedNodes, cutSelectedNodes, pasteNodes, getEffectiveSelectedNodes } from "./node-actions.js";
 import { startEditNode } from "../render/render.js";
 import { lockCurrentTab, openVaultSetModal } from "../ui/vault.js";
 import { closeTabWithConfirm, switchTabRelative, renderTabBar } from "../core/tab-manager.js";
@@ -15,6 +15,8 @@ import { openVersionHistoryModal } from "../storage/storage.js";
 import { openSearch, closeSearch, isSearchOpen } from "../ui/search.js";
 import { showToast } from "../ui/dialog.js";
 import { bus, EVENTS } from "../core/event-bus.js";
+
+export const getValidSelectedNodes = getEffectiveSelectedNodes;
 
 export function isApplePlatform() {
   if (typeof navigator === "undefined") return false;
@@ -94,6 +96,11 @@ export function handleArrowNavigation(key, renderApp) {
 
 export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
   window.addEventListener("keydown", async (e) => {
+    // 🌟 P0-1 防御：当全屏模态弹窗（3D抽认卡/密码设置/时光机等）激活时，阻断背景画布快捷键渗透，杜绝打分误改优先级
+    const activeModal = document.querySelector(".apple-modal-overlay:not(.hidden)");
+    if (activeModal && e.key !== "Escape") {
+      return;
+    }
     const ctx = getActiveDocumentContext();
     const isMac = isApplePlatform();
     const cmd = isMac ? e.metaKey : e.ctrlKey;
@@ -286,58 +293,18 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
     // 6. Cmd / Ctrl 单独组合键
     if (cmd && !e.shiftKey && !isAlt) {
       if (code === "KeyC" || key === "c") {
-        const p = ctx?.primarySelectedNode;
-        if (p) {
-          e.preventDefault();
-          state.clipboardBranch = sanitizeTreeForHistory(p);
-          showToast(`📋 已复制分支「${p.text || "主题"}」`);
-        }
+        e.preventDefault();
+        copySelectedNodes(ctx);
         return;
       }
       if (code === "KeyX" || key === "x") {
-        const p = ctx?.primarySelectedNode;
-        if (p && p.id !== ctx.focusedRootId && ctx.mindData) {
-          e.preventDefault();
-          state.clipboardBranch = sanitizeTreeForHistory(p);
-          const parent = findParent(p.id, ctx.mindData);
-          if (parent) {
-            const idx = parent.children.findIndex(c => c.id === p.id);
-            ctx.executeCommand({
-              type: COMMANDS.REMOVE_NODE,
-              nodeId: p.id,
-              oldParentId: parent.id,
-              oldIndex: idx,
-              oldNode: p
-            });
-            ctx.selectNode(parent.id);
-            renderApp();
-            showToast(`✂️ 已剪切分支「${p.text || "主题"}」`);
-          }
-        }
+        e.preventDefault();
+        cutSelectedNodes(ctx);
         return;
       }
       if (code === "KeyV" || key === "v") {
-        const p = ctx?.primarySelectedNode || findNode(ctx?.focusedRootId, ctx?.mindData);
-        if (p && state.clipboardBranch && ctx) {
-          e.preventDefault();
-          const cloned = sanitizeTreeForHistory(state.clipboardBranch);
-          function refreshIds(n) {
-            n.id = "node_" + Date.now() + "_" + Math.random().toString(36).substr(2, 5);
-            if (n.children) n.children.forEach(refreshIds);
-          }
-          refreshIds(cloned);
-          ctx.executeCommand({
-            type: COMMANDS.INSERT_NODE,
-            parentId: p.id,
-            index: p.children ? p.children.length : 0,
-            node: cloned
-          });
-          p.collapsed = false;
-          ctx.selectNode(cloned.id);
-          ctx.isLayoutDirty = true;
-          renderApp();
-          showToast(`📥 已粘贴分支「${cloned.text || "主题"}」`);
-        }
+        e.preventDefault();
+        pasteNodes(null, ctx);
         return;
       }
       if (code === "KeyZ" || key === "z") {
@@ -445,23 +412,7 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         if (primary && ctx?.selectedIds && ctx.selectedIds.size > 0) {
           e.preventDefault();
           const pVal = e.key === "0" ? null : `P${e.key}`;
-          const subCommands = [];
-          ctx.selectedIds.forEach(id => {
-            const n = findNode(id, ctx.mindData);
-            if (n) {
-              subCommands.push({
-                type: COMMANDS.UPDATE_ATTRS,
-                nodeId: n.id,
-                oldAttrs: { priority: n.priority || null },
-                newAttrs: { priority: pVal }
-              });
-            }
-          });
-          if (subCommands.length === 1) {
-            ctx.executeCommand(subCommands[0], true);
-          } else if (subCommands.length > 1) {
-            ctx.executeCompoundCommand(subCommands, true);
-          }
+          ctx.batchUpdateAttrs(ctx.selectedIds, () => ({ priority: pVal }), true);
           syncInspectorUi(ctx);
           showToast(pVal ? `🚩 优先级已设为 ${pVal}` : "🚩 已清除优先级");
           return;

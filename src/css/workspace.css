@@ -302,7 +302,7 @@
   gap: 4px; 
   overflow-x: auto; 
   flex: 0 0 auto !important; 
-  max-width: calc(100% - 36px);
+  max-width: calc(100% - 64px);
   height: 100%; 
   scrollbar-width: none; 
 }
@@ -348,12 +348,18 @@
   text-overflow: ellipsis; 
 }
 
+/* 🌟 绿色柔光指示灯质感圆点 */
 .tab-dirty-indicator { 
-  width: 5.5px; 
-  height: 5.5px; 
+  width: 6px; 
+  height: 6px; 
   border-radius: 50%; 
-  background: var(--apple-orange); 
+  background: var(--apple-green, #34c759); 
+  box-shadow: 0 0 5px rgba(52, 199, 89, 0.65);
   flex-shrink: 0; 
+}
+.apple-tab-item.active .tab-dirty-indicator {
+  background: var(--apple-green, #34c759);
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.85);
 }
 
 .tab-close-btn { 
@@ -373,14 +379,21 @@
   color: var(--text-primary);
 }
 
-/* 「+」新建标签按钮：紧紧贴合在最后一个标签页后方 */
-.tab-add-btn { 
+/* 🌟 标签操作按钮群组（新建与批量菜单横向居中排列，彻底杜绝折行与错位） */
+.tab-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 24px;
+}
+
+.tab-action-btn { 
   height: 22px; 
   width: 22px; 
   border: none; 
   background: transparent; 
-  font-size: 15px; 
-  font-weight: 400;
+  font-size: 13px; 
   color: var(--text-tertiary); 
   cursor: pointer; 
   border-radius: 5px;
@@ -389,10 +402,19 @@
   justify-content: center;
   transition: all 0.14s ease;
   flex-shrink: 0;
+  padding: 0;
 }
-.tab-add-btn:hover {
+.tab-action-btn:hover {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text-primary);
+}
+
+.tab-action-divider {
+  width: 1px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 0 2px;
+  flex-shrink: 0;
 }
 
 /* ==========================================================================
@@ -711,14 +733,24 @@
   overflow: visible;
 }
 
-/* 🌟 精准匹配 Canvas 渲染基线的行内编辑器增强 */
+/* 🌟 精准匹配 Canvas 渲染基线的行内编辑器增强（左锚定自然向右生长） */
 .inline-editor {
-  text-align: center !important;
-  padding: 1px 4px !important;
-  border-radius: 5px !important;
+  text-align: left !important;
+  padding: 4px 8px !important;
+  border-radius: 8px !important;
   margin: 0 !important;
-  border: 1px solid var(--apple-blue) !important;
-  box-shadow: 0 0 0 2.5px var(--apple-blue-focus-ring) !important;
+  border: 1.5px solid var(--apple-blue) !important;
+  box-shadow: 0 0 0 3.5px var(--apple-blue-focus-ring), 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+  resize: none !important;
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  box-sizing: border-box !important;
+}
+.inline-editor::-webkit-scrollbar {
+  display: none !important;
 }
 
 /* 🌟 大纲文档树状层级辅助线与交互强化 */
@@ -1019,6 +1051,16 @@ body:has(#format-sidebar:not(.collapsed)) .apple-search-bar {
 [data-theme="dark"] .apple-tab-bar { background: #161b26; border-bottom-color: rgba(255, 255, 255, 0.08); }
 [data-theme="dark"] .apple-tab-item { color: #94a3b8; }
 [data-theme="dark"] .apple-tab-item.active { background: #1f2737; color: #f8fafc; border-color: rgba(255, 255, 255, 0.12); }
+[data-theme="dark"] .tab-action-divider { background: rgba(255, 255, 255, 0.1); }
+[data-theme="dark"] .tab-action-btn:hover { background: rgba(255, 255, 255, 0.08); color: #f8fafc; }
+[data-theme="dark"] .tab-dirty-indicator { 
+  background: #34c759; 
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.8);
+}
+[data-theme="dark"] .apple-tab-item.active .tab-dirty-indicator { 
+  background: #30d158; 
+  box-shadow: 0 0 7px rgba(48, 209, 88, 0.95);
+}
 [data-theme="dark"] .outliner-panel { background: #151a24; }
 [data-theme="dark"] .outliner-text-input:focus { background: #1c2332; }
 [data-theme="dark"] .canvas-floating-controls,

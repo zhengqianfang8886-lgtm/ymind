@@ -1,5 +1,6 @@
 import { scheduleSessionSave } from "../storage/session.js";
-import { state, getActiveTab, findNode, findParent } from "./state.js";
+import { state, getActiveTab } from "./store.js";
+import { findNode, findParent } from "./tree-utils.js";
 import { sanitizeTreeForHistory, rebuildTopologyIndex } from "./tree-utils.js";
 import { bus, EVENTS } from "./event-bus.js";
 
@@ -25,7 +26,8 @@ function trimHistoryStack(tab) {
     if (tab.historyStack[0]?.type === "SNAPSHOT" && tab.historyStack.length > 1) {
       const oldest = tab.historyStack[1];
       if (oldest.type === "COMMAND") {
-        applyCmd(oldest.payload, tab.historyStack[0].payload);
+        // 🌟 历史快照合并时传入 null 作为 targetTab，彻底消除对当前活跃 Tab 配置的意外篡改
+        applyCmd(oldest.payload, tab.historyStack[0].payload, null);
         rebuildTopologyIndex(tab.historyStack[0].payload);
       } else if (oldest.type === "SNAPSHOT") {
         tab.historyStack[0].payload = oldest.payload;
@@ -160,13 +162,44 @@ export function undo(renderCallback, targetTab = null) {
     revertCmd(currentRecord.payload, tab.mindData);
     tab.historyIndex = Math.max(0, tab.historyIndex - 1);
   } else {
-    tab.historyIndex = Math.max(0, tab.historyIndex - 1);
-    const targetRecord = tab.historyStack[tab.historyIndex];
-    if (targetRecord) {
+    const targetIndex = Math.max(0, tab.historyIndex - 1);
+    tab.historyIndex = targetIndex;
+    const targetRecord = tab.historyStack[targetIndex];
+    if (targetRecord?.type === "SNAPSHOT") {
       const targetState = targetRecord.snapshot || targetRecord.payload;
       if (targetState) {
         tab.mindData = sanitizeTreeForHistory(targetState);
       }
+    } else if (targetRecord?.type === "COMMAND") {
+      let baseSnapIdx = -1;
+      for (let i = targetIndex - 1; i >= 0; i--) {
+        if (tab.historyStack[i]?.type === "SNAPSHOT") {
+          baseSnapIdx = i;
+          break;
+        }
+      }
+      if (baseSnapIdx !== -1) {
+        const baseState = tab.historyStack[baseSnapIdx].snapshot || tab.historyStack[baseSnapIdx].payload;
+        const restoredTree = sanitizeTreeForHistory(baseState);
+        rebuildTopologyIndex(restoredTree);
+        for (let i = baseSnapIdx + 1; i <= targetIndex; i++) {
+          const rec = tab.historyStack[i];
+          if (rec?.type === "COMMAND") {
+            applyCmd(rec.payload, restoredTree);
+            rebuildTopologyIndex(restoredTree);
+          } else if (rec?.type === "SNAPSHOT") {
+            const midState = rec.snapshot || rec.payload;
+            if (midState) {
+              const cleanMid = sanitizeTreeForHistory(midState);
+              Object.assign(restoredTree, cleanMid);
+              rebuildTopologyIndex(restoredTree);
+            }
+          }
+        }
+        tab.mindData = restoredTree;
+      }
+  rebuildTopologyIndex(tab.mindData);
+  rebuildTopologyIndex(tab.mindData);
     }
   }
 
@@ -205,7 +238,7 @@ export function redo(renderCallback, targetTab = null) {
   else bus.emit(EVENTS.RENDER_APP);
 }
 
-function applyCmd(cmd, root) {
+function applyCmd(cmd, root, targetTab = getActiveTab()) {
   if (!cmd || !root) return;
   switch (cmd.type) {
     case COMMANDS.SET_TEXT: {
@@ -234,19 +267,20 @@ function applyCmd(cmd, root) {
       const newP = findNode(cmd.toParentId, root);
       if (oldP && newP && oldP.children) {
         const curIdx = oldP.children.findIndex(c => c.id === cmd.nodeId);
-        const n = curIdx !== -1 ? oldP.children.splice(curIdx, 1)[0] : oldP.children.splice(cmd.fromIndex, 1)[0];
+        if (curIdx === -1) break; // 🌟 P0-2 防御：未定位到目标节点时坚决不执行误切
+        const n = oldP.children.splice(curIdx, 1)[0];
         if (n) {
           if (!newP.children) newP.children = [];
           const toIdx = typeof cmd.toIndex === "number" ? Math.min(cmd.toIndex, newP.children.length) : newP.children.length;
           newP.children.splice(toIdx, 0, n);
+          rebuildTopologyIndex(root);
         }
       }
       break;
     }
     case COMMANDS.UPDATE_CONFIG: {
-      const tab = getActiveTab();
-      if (tab && cmd.prop) {
-        tab[cmd.prop] = cmd.newVal;
+      if (targetTab && cmd.prop) {
+        targetTab[cmd.prop] = cmd.newVal;
       }
       break;
     }
@@ -262,14 +296,14 @@ function applyCmd(cmd, root) {
     }
     case COMMANDS.COMPOUND: {
       if (Array.isArray(cmd.commands)) {
-        for (let i = 0; i < cmd.commands.length; i++) applyCmd(cmd.commands[i], root);
+        for (let i = 0; i < cmd.commands.length; i++) applyCmd(cmd.commands[i], root, targetTab);
       }
       break;
     }
   }
 }
 
-function revertCmd(cmd, root) {
+function revertCmd(cmd, root, targetTab = getActiveTab()) {
   if (!cmd || !root) return;
   switch (cmd.type) {
     case COMMANDS.SET_TEXT: {
@@ -298,19 +332,20 @@ function revertCmd(cmd, root) {
       const origP = findNode(cmd.fromParentId, root);
       if (oldP && origP && oldP.children) {
         const curIdx = oldP.children.findIndex(c => c.id === cmd.nodeId);
-        const n = curIdx !== -1 ? oldP.children.splice(curIdx, 1)[0] : oldP.children.splice(cmd.toIndex, 1)[0];
+        if (curIdx === -1) break; // 🌟 P0-2 防御：未定位到目标节点时坚决不执行误切
+        const n = oldP.children.splice(curIdx, 1)[0];
         if (n) {
           if (!origP.children) origP.children = [];
           const fromIdx = typeof cmd.fromIndex === "number" ? Math.min(cmd.fromIndex, origP.children.length) : origP.children.length;
           origP.children.splice(fromIdx, 0, n);
+          rebuildTopologyIndex(root);
         }
       }
       break;
     }
     case COMMANDS.UPDATE_CONFIG: {
-      const tab = getActiveTab();
-      if (tab && cmd.prop) {
-        tab[cmd.prop] = cmd.oldVal;
+      if (targetTab && cmd.prop) {
+        targetTab[cmd.prop] = cmd.oldVal;
       }
       break;
     }

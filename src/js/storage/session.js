@@ -119,7 +119,8 @@ export function deserializeTabFromSession(item) {
     isEncrypted: Boolean(item.isEncrypted),
     passwordHint: item.passwordHint || "",
     encryptedVault: item.encryptedVault || null,
-    _isLocked: Boolean(item.isEncrypted)
+    _isLocked: Boolean(item.isEncrypted),
+    _skipAnimation: true
   };
   tabObj._context = new DocumentContext(tabObj);
   return tabObj;
@@ -162,11 +163,15 @@ export function saveSessionSyncFallback() {
         isEncrypted: false
       };
     });
-    localStorage.setItem(HOT_EXIT_KEY + "_SYNC", JSON.stringify({
+    const rawJson = JSON.stringify({
       activeTabId: state.activeTabId,
       tabs: lightTabs,
       timestamp: Date.now()
-    }));
+    });
+    // 超过 1.2MB 则不写入 localStorage，防止卡死主线程及超出 5MB 限制
+    if (rawJson.length < 1200000) {
+      localStorage.setItem(HOT_EXIT_KEY + "_SYNC", rawJson);
+    }
   } catch (e) {}
 }
 
@@ -176,7 +181,6 @@ export async function saveSessionImmediate() {
     sessionSaveTimer = null;
   }
   try {
-    saveSessionSyncFallback();
     if (!state.tabs || state.tabs.length === 0) {
       await idbDeleteDraft(HOT_EXIT_KEY);
       return;
@@ -202,24 +206,76 @@ export function scheduleSessionSave() {
 
 export async function restoreSession() {
   try {
-    let raw = await idbGetDraft(HOT_EXIT_KEY);
-    if (!raw || !Array.isArray(raw.tabs) || raw.tabs.length === 0) {
-      const syncRaw = localStorage.getItem(HOT_EXIT_KEY + "_SYNC");
-      if (syncRaw) {
-        try { raw = JSON.parse(syncRaw); } catch {}
-      }
+    let idbRaw = await idbGetDraft(HOT_EXIT_KEY);
+    let syncRaw = null;
+    const syncStr = localStorage.getItem(HOT_EXIT_KEY + "_SYNC");
+    if (syncStr) {
+      try { syncRaw = JSON.parse(syncStr); } catch {}
+    }
+
+    let raw = null;
+    const idbTime = (idbRaw && typeof idbRaw.timestamp === "number") ? idbRaw.timestamp : 0;
+    const syncTime = (syncRaw && typeof syncRaw.timestamp === "number") ? syncRaw.timestamp : 0;
+
+    // 🌟 P1-6 防御：按时间戳竞争仲裁，优先采纳更新的同步降级暂存，杜绝旧 IndexedDB 覆盖最新数据
+    if (syncTime > idbTime && Array.isArray(syncRaw?.tabs) && syncRaw.tabs.length > 0) {
+      raw = syncRaw;
+    } else if (Array.isArray(idbRaw?.tabs) && idbRaw.tabs.length > 0) {
+      raw = idbRaw;
+    } else if (Array.isArray(syncRaw?.tabs) && syncRaw.tabs.length > 0) {
+      raw = syncRaw;
     }
     if (!raw || !Array.isArray(raw.tabs) || raw.tabs.length === 0) {
       return false;
     }
 
-    const restoredTabs = raw.tabs.map(deserializeTabFromSession).filter(Boolean);
-    if (restoredTabs.length === 0) return false;
+    const rawTabs = raw.tabs.map(deserializeTabFromSession).filter(Boolean);
+    if (rawTabs.length === 0) return false;
 
-    state.tabs = restoredTabs;
-    state.activeTabId = (raw.activeTabId && restoredTabs.some(t => t.id === raw.activeTabId))
+    // 🌟 物理文件存在性校验：剔除磁盘上已被移动或删除的幽灵文档
+    const validTabs = [];
+    const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke || window.__TAURI_INTERNALS__?.invoke;
+
+    for (const tab of rawTabs) {
+      if (!tab.filePath) {
+        validTabs.push(tab);
+        continue;
+      }
+      if (invoke) {
+        try {
+          const content = await invoke("read_file_content", { path: tab.filePath });
+          if (typeof content === "string") {
+            if (!tab.isDirty && !tab.isEncrypted) {
+              try {
+                const parsed = JSON.parse(content);
+                const { deserializePackage } = await import("../core/serializer.js");
+                const res = deserializePackage(parsed, tab.title, tab.filePath);
+                if (res && res.loadedMindData) {
+                  tab.mindData = res.loadedMindData;
+                }
+              } catch {}
+            }
+            validTabs.push(tab);
+          }
+        } catch {
+          console.warn("[HotExit] Physical file deleted or inaccessible on disk, discarding ghost session:", tab.filePath);
+        }
+      } else {
+        validTabs.push(tab);
+      }
+    }
+
+    if (validTabs.length === 0) {
+      await clearSession();
+      state.tabs = [];
+      state.activeTabId = null;
+      return false;
+    }
+
+    state.tabs = validTabs;
+    state.activeTabId = (raw.activeTabId && validTabs.some(t => t.id === raw.activeTabId))
       ? raw.activeTabId
-      : restoredTabs[0].id;
+      : validTabs[0].id;
     state.isLayoutDirty = true;
     return true;
   } catch (e) {

@@ -64,11 +64,75 @@ export async function extractRealXMindZip(arrayBuffer) {
   throw new Error("XMIND_CONTENT_NOT_FOUND");
 }
 
+// 🌟 稀疏对象序列化引擎：兼容各种老版本字段结构，剔除 null、false、空串等默认冗余
+export function compactMindNode(node) {
+  if (!node || typeof node !== "object") return null;
+  const data = (node.data && typeof node.data === "object") ? node.data : node;
+  const out = {
+    id: String(node.id || data.id || ("node_" + Math.random().toString(36).substr(2, 6))),
+    text: String(data.text || data.title || node.text || node.title || "")
+  };
+
+  const icon = data.icon || node.icon;
+  if (icon) out.icon = icon;
+
+  const priority = data.priority || node.priority;
+  if (priority) out.priority = priority;
+
+  const progress = data.progress !== undefined ? data.progress : node.progress;
+  if (progress !== undefined && progress !== null && progress !== "") out.progress = progress;
+
+  const tags = Array.isArray(data.tags) ? data.tags : (Array.isArray(node.tags) ? node.tags : null);
+  if (tags && tags.length > 0) out.tags = tags.map(String);
+
+  const note = data.note || node.note;
+  if (note && typeof note === "string" && note.trim()) out.note = note;
+
+  const link = data.link || node.link;
+  if (link && typeof link === "string" && link.trim()) out.link = link;
+
+  if (data.todo || node.todo) out.todo = true;
+  if (data.done || node.done) out.done = true;
+
+  const dueDate = data.dueDate || node.dueDate;
+  if (dueDate) out.dueDate = dueDate;
+
+  if (data.collapsed || node.collapsed || data.expand === false) out.collapsed = true;
+
+  const fontSize = data.fontSize || node.fontSize;
+  if (fontSize) out.fontSize = fontSize;
+
+  const fontWeight = data.fontWeight || node.fontWeight;
+  if (fontWeight && fontWeight !== "500") out.fontWeight = fontWeight;
+
+  const fontStyle = data.fontStyle || node.fontStyle;
+  if (fontStyle && fontStyle !== "normal") out.fontStyle = fontStyle;
+
+  const textDecoration = data.textDecoration || node.textDecoration;
+  if (textDecoration && textDecoration !== "none") out.textDecoration = textDecoration;
+
+  const textColor = data.textColor || node.textColor;
+  if (textColor && textColor !== "default") out.textColor = textColor;
+
+  const branchDirection = data.branchDirection || node.branchDirection;
+  if (branchDirection) out.branchDirection = branchDirection;
+
+  const rawChildren = node.children || data.children || node.topics || data.topics || node.subTopics || data.subTopics;
+  if (Array.isArray(rawChildren) && rawChildren.length > 0) {
+    out.children = rawChildren.map(compactMindNode).filter(Boolean);
+  } else {
+    out.children = [];
+  }
+
+  return out;
+}
+
 export async function serializeTabToPackage(tab) {
   const defaultTitle = (tab?.isEncrypted) ? (tab?.title || "保密思维导图") : (tab?.mindData?.text ? tab.mindData.text.trim() : (tab?.title || "思维导图"));
   const presetFilename = sanitizeFilename(defaultTitle);
   
-  let finalPayload = tab?.mindData || { id: "root", text: "中心主题", children: [] };
+  const rawPayload = tab?.mindData || { id: "root", text: "中心主题", children: [] };
+  const finalPayload = compactMindNode(rawPayload);
   let isEncrypted = Boolean(tab?.isEncrypted);
   let encryptedPackage = tab?.encryptedVault || null;
 
@@ -77,6 +141,26 @@ export async function serializeTabToPackage(tab) {
   } else if (isEncrypted && !encryptedPackage) {
     throw new Error("CANNOT_SAVE_UNLOCKED_WITHOUT_PASSWORD");
   }
+
+  // 🌟 全兼容就地瘦身：100% 完整保留历史时光机版本，同时对快照内部旧树执行同步紧凑瘦身并剥离 _contentJson 镜像
+  const compactedVersions = (isEncrypted || !Array.isArray(tab?.versions)) ? [] : tab.versions.map(snap => {
+    if (!snap || typeof snap !== "object") return null;
+    return {
+      id: String(snap.id || ("ver_" + Math.random().toString(36).substr(2, 5))),
+      name: String(snap.name || "历史版本"),
+      trigger: snap.trigger || "manual",
+      timestamp: snap.timestamp || Date.now(),
+      tabTitle: snap.tabTitle || presetFilename,
+      nodeCount: snap.nodeCount || 0,
+      layoutStructure: snap.layoutStructure || "mindmap",
+      colorPalette: snap.colorPalette || "apple-classic",
+      lineStyle: snap.lineStyle || "curve",
+      boxStyle: snap.boxStyle || "squircle",
+      canvasBgColor: snap.canvasBgColor || "studio-white",
+      canvasBgPattern: snap.canvasBgPattern || "dots",
+      mindData: compactMindNode(snap.mindData || { id: "root", text: "中心主题", children: [] })
+    };
+  }).filter(Boolean);
 
   return {
     filePackage: {
@@ -92,7 +176,7 @@ export async function serializeTabToPackage(tab) {
       canvasBgColor: tab?.canvasBgColor || "studio-white",
       canvasBgPattern: tab?.canvasBgPattern || "dots",
       mindData: isEncrypted ? null : finalPayload,
-      versions: isEncrypted ? [] : (tab?.versions || []).slice(0, 10),
+      versions: compactedVersions,
       encryptedVault: isEncrypted ? encryptedPackage : null
     },
     filenameWithExt: presetFilename + ".ymind",
@@ -188,7 +272,12 @@ export function normalizeMindNode(n) {
     done: Boolean(data.done || n.done),
     dueDate: data.dueDate || n.dueDate || null,
     collapsed: Boolean(data.collapsed || n.collapsed || data.expand === false),
-    fontSize: data.fontSize || n.fontSize || null,
+    fontSize: (() => {
+      const raw = data.fontSize || n.fontSize;
+      if (!raw) return null;
+      const val = parseFloat(raw);
+      return (!isNaN(val) && val > 0) ? String(val) : null;
+    })(),
     fontWeight: data.fontWeight || n.fontWeight || null,
     fontStyle: data.fontStyle || n.fontStyle || null,
     textDecoration: data.textDecoration || n.textDecoration || null,
