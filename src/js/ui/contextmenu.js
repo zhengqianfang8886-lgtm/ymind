@@ -110,6 +110,8 @@ function handleMenuAction(action, renderApp) {
     toggleNodeTodo(node);
   } else if (action === "edit-due-date") {
     promptEditDueDate(node);
+  } else if (action === "export-snap") {
+    import("./snapshot.js").then(m => m.openSnapshotModal(node));
   } else if (action === "copy-deep-link") {
     copyNodeDeepLink(node);
   } else if (action === "open-link") {

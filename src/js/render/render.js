@@ -128,6 +128,10 @@ function appendTaperedRibbon(path, node, child, isPrimary, boxStyle, s) {
   const w2 = isPrimary ? (2.6 / s) : (1.8 / s);
   const r1 = w1 / 2;
   const r2 = w2 / 2;
+  if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) {
+    return;
+  }
+
   const dx = x2 - x1;
   const dy = y2 - y1;
 
@@ -143,8 +147,11 @@ function appendTaperedRibbon(path, node, child, isPrimary, boxStyle, s) {
   } else {
     const isDirectionMismatch = isLeft ? (dx > -5) : (dx < 5);
     if (Math.abs(dx) < 8 || isDirectionMismatch) {
-      path.moveTo(x1, y1);
-      path.lineTo(x2, y2);
+      path.moveTo(x1, y1 - r1);
+      path.lineTo(x2, y2 - r2);
+      path.lineTo(x2, y2 + r2);
+      path.lineTo(x1, y1 + r1);
+      path.closePath();
       return;
     }
 

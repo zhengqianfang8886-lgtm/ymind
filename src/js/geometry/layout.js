@@ -84,7 +84,7 @@ const measureCtx = measureCanvas && typeof measureCanvas.getContext === "functio
 let hotTextCache = new Map();
 let coldTextCache = new Map();
 const MAX_TEXT_CACHE = 8000;
-let globalFontRev = 1;
+let globalFontRev = 2;
 
 let cachedFontFamily = null;
 export function getActiveFontFamily() {
@@ -288,27 +288,28 @@ export function measureNodeSize(node, level, focusedRootId) {
   const textWidth = Math.min(maxLineW, maxAllowedTextW);
 
   let extraLeftWidth = 0;
-  if (node.icon) extraLeftWidth += 18;
-  if (node.priority) extraLeftWidth += 22;
-  if (node.progress !== undefined && node.progress !== null && node.progress !== '') extraLeftWidth += 17;
-  if (node.todo) extraLeftWidth += 18;
-  if (node.note) extraLeftWidth += 18;
-  if (node.link) extraLeftWidth += 17;
+  if (node.icon) extraLeftWidth += 20;
+  if (node.priority) extraLeftWidth += 23;
+  if (node.progress !== undefined && node.progress !== null && node.progress !== '') extraLeftWidth += 18;
+  if (node.todo) extraLeftWidth += 20;
+  if (node.note) extraLeftWidth += 19;
+  if (node.link) extraLeftWidth += 19;
+  if (extraLeftWidth > 0) extraLeftWidth += 6; // 徽章与首字呼吸缓冲间距
 
   let tagsWidth = 0;
   if (node.tags && Array.isArray(node.tags) && node.tags.length > 0) {
-    tagsWidth += 5;
+    tagsWidth += 8; // 正文与标签舒适间隙
     for (let i = 0; i < node.tags.length; i++) {
-      tagsWidth += getTextLineWidth(String(node.tags[i]), 9.5) + 11;
-      if (i < node.tags.length - 1) tagsWidth += 3;
+      tagsWidth += getTextLineWidth(String(node.tags[i]), 9.5) + 12;
+      if (i < node.tags.length - 1) tagsWidth += 4;
     }
   }
 
-  // 🌟 黄金纵横比：根节点 44px 沉稳锚定，一级节点 33px 留白舒适，二级节点 27px
-  const padX = isRoot ? 22 : (isLevel1 ? 12 : 9);
-  const padY = isRoot ? 11 : (isLevel1 ? 7 : 5.5);
-  const minH = isRoot ? 44 : (isLevel1 ? 33 : 27);
-  const minW = isRoot ? 80 : (isLevel1 ? 44 : 34);
+  // 🌟 Apple 原生展示级呼吸留白：避开超椭圆圆角，告别局促紧绷
+  const padX = isRoot ? 24 : (isLevel1 ? 16 : 14);
+  const padY = isRoot ? 12 : (isLevel1 ? 8.5 : 7);
+  const minH = isRoot ? 44 : (isLevel1 ? 34 : 30);
+  const minW = isRoot ? 84 : (isLevel1 ? 48 : 38);
 
   node.contentWidth = extraLeftWidth + textWidth + tagsWidth;
   node.width = Math.max(minW, Math.ceil(node.contentWidth + padX * 2));

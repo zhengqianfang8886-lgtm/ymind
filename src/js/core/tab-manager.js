@@ -12,7 +12,11 @@ export function cleanupActiveTransientUI() {
   document.getElementById("menu-node-attributes")?.classList.add("hidden");
   document.getElementById("btn-node-attributes")?.classList.remove("active");
   document.getElementById("apple-context-menu")?.classList.add("hidden");
-  document.getElementById("apple-tab-context-menu")?.classList.add("hidden");
+  const tabCtxMenu = document.getElementById("apple-tab-context-menu");
+  if (tabCtxMenu) {
+    tabCtxMenu.classList.add("hidden");
+    tabCtxMenu.style.display = "none";
+  }
 
   setDropIndicator(null);
   resetBreadcrumbSig();
@@ -233,75 +237,62 @@ export function renderTabBar() {
 
 export function initTabBar(renderApp, showHome) {
   const tabContextMenu = document.getElementById("apple-tab-context-menu");
-  const batchBtn = document.getElementById("btn-tab-batch-menu");
-  const batchWrapper = batchBtn?.closest(".dropdown-wrapper");
-
-  const batchDropdown = document.getElementById("menu-tab-batch-dropdown");
-
-  // 1. 批量操作工具栏下拉选单智能物理锚定定位
-  batchBtn?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (!batchDropdown) return;
-    const isOpening = !batchWrapper?.classList.contains("active");
-    batchWrapper?.classList.toggle("active");
-
-    if (isOpening) {
-      const rect = batchBtn.getBoundingClientRect();
-      const menuWidth = 170;
-      // 优先以按钮右沿向左展开对齐，贴身吸附
-      let leftPos = rect.right - menuWidth;
-      // 边界保护：若过于偏左，向右自适应展开
-      if (leftPos < 10) leftPos = Math.max(10, rect.left);
-      // 边界保护：若超出右侧屏幕，自动贴紧右屏幕安全边距
-      if (leftPos + menuWidth > window.innerWidth - 10) {
-        leftPos = window.innerWidth - menuWidth - 10;
-      }
-
-      batchDropdown.style.position = "fixed";
-      batchDropdown.style.top = `${Math.round(rect.bottom + 6)}px`;
-      batchDropdown.style.left = `${Math.round(leftPos)}px`;
-      batchDropdown.style.right = "auto";
-    }
-  });
+  const tabBar = document.getElementById("apple-tab-bar");
 
   window.addEventListener("click", (e) => {
-    if (batchWrapper && !batchWrapper.contains(e.target)) batchWrapper.classList.remove("active");
-    if (tabContextMenu && !tabContextMenu.contains(e.target)) tabContextMenu.classList.add("hidden");
+    if (tabContextMenu && !tabContextMenu.contains(e.target)) hideTabContextMenu();
   });
 
-  document.querySelectorAll("[data-tab-action]").forEach(item => {
-    item.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      batchWrapper?.classList.remove("active");
-      const action = item.dataset.tabAction;
-      if (action === "close-others") await closeOtherTabsWithConfirm();
-      else if (action === "close-right") await closeTabsToRightWithConfirm();
-      else if (action === "close-all") await closeAllTabsWithConfirm();
-    });
-  });
+  const hideTabContextMenu = () => {
+    if (tabContextMenu) {
+      tabContextMenu.classList.add("hidden");
+      tabContextMenu.style.display = "none";
+    }
+  };
 
-  // 2. 标签右键菜单事件响应
-  tabList?.addEventListener("contextmenu", (e) => {
-    const item = e.target.closest(".apple-tab-item");
-    if (!item) return;
+  // 🌟 VS Code 风格：右键标签项或标签栏空白区域唤起上下文管理菜单
+  tabBar?.addEventListener("contextmenu", (e) => {
+    if (e.target.closest(".tab-add-btn")) return;
     e.preventDefault();
     e.stopPropagation();
-    tabContextMenuTargetId = item.dataset.tabId;
     if (!tabContextMenu) return;
+
+    const item = e.target.closest(".apple-tab-item");
+    // VS Code 体验对齐：若右击非当前活动标签，先行切换激活该标签
+    if (item?.dataset?.tabId && item.dataset.tabId !== state.activeTabId) {
+      activateTab(item.dataset.tabId);
+    }
+
+    tabContextMenuTargetId = item ? item.dataset.tabId : state.activeTabId;
+
+    const itemSpecificElements = tabContextMenu.querySelectorAll(
+      '[data-tab-menu="close-current"], [data-tab-menu="close-others"], [data-tab-menu="close-right"], .tab-item-separator'
+    );
+    itemSpecificElements.forEach(el => {
+      el.style.display = item ? "" : "none";
+    });
 
     let posX = e.clientX;
     let posY = e.clientY + 6;
-    if (posX + 180 > window.innerWidth) posX = window.innerWidth - 190;
+    if (posX + 190 > window.innerWidth) posX = window.innerWidth - 200;
+    if (posY + 160 > window.innerHeight) posY = window.innerHeight - 170;
 
     tabContextMenu.style.left = `${posX}px`;
     tabContextMenu.style.top = `${posY}px`;
+    tabContextMenu.style.display = "block";
     tabContextMenu.classList.remove("hidden");
+  });
+
+  window.addEventListener("contextmenu", (e) => {
+    if (tabContextMenu && !tabContextMenu.contains(e.target) && !e.target.closest("#apple-tab-bar")) {
+      hideTabContextMenu();
+    }
   });
 
   tabContextMenu?.querySelectorAll("[data-tab-menu]").forEach(item => {
     item.addEventListener("click", async (e) => {
       e.stopPropagation();
-      tabContextMenu.classList.add("hidden");
+      hideTabContextMenu();
       const action = item.dataset.tabMenu;
       const targetId = tabContextMenuTargetId || state.activeTabId;
 
@@ -347,11 +338,7 @@ export function initTabBar(renderApp, showHome) {
     smartCenterOnSelectedNode(state, false);
   });
 
-  const tabBar = document.getElementById("apple-tab-bar");
   tabBar?.addEventListener("wheel", (e) => {
-    if (batchWrapper?.classList.contains("active")) {
-      batchWrapper.classList.remove("active");
-    }
     if (tabList && e.deltaY !== 0 && !e.target.closest(".tab-action-group")) {
       e.preventDefault();
       tabList.scrollLeft += e.deltaY;

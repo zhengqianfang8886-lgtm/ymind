@@ -248,6 +248,14 @@ export function cutSelectedNodes(customCtx = null, explicitNode = null) {
   const affectedParents = new Set();
 
   itemsToDelete.forEach(({ id, parent, idx, node }) => {
+    if (typeof nodeAnimator?.animatingNodes?.delete === "function") {
+      nodeAnimator.animatingNodes.delete(node);
+      delete node._curX;
+      delete node._curY;
+      delete node._vx;
+      delete node._vy;
+      delete node._delay;
+    }
     subCommands.push({
       type: COMMANDS.REMOVE_NODE,
       nodeId: id,

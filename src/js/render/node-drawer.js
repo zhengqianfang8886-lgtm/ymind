@@ -11,11 +11,12 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
   const isGlobalDark = document.documentElement.getAttribute("data-theme") === "dark";
   const isDarkCanvas = isGlobalDark || ["space-gray", "midnight-abyss", "prussian-navy", "slate-chalkboard", "cyber-violet", "obsidian-coffee"].includes(docCtx?.canvasBgColor);
 
-  const padX = Math.max(4, Math.round((node.width - (node.contentWidth || 0)) / 2));
+  const padX = Math.max(6, Math.round((node.width - (node.contentWidth || 0)) / 2));
   let currentOffset = padX;
   const centerY = node.y + node.height / 2;
+  let hasAnyBadge = false;
 
-  // 0.5 🌟 待办复选框 (18px 步进)
+  // 0.5 🌟 待办复选框
   if (node.todo && currentScale >= 0.45) {
     const boxX = node.x + currentOffset;
     const boxY = centerY - 7;
@@ -41,23 +42,27 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
       ctx.lineWidth = 1.3;
       ctx.stroke();
     }
-    currentOffset += 18;
+    currentOffset += 20;
+    hasAnyBadge = true;
   } else if (node.todo) {
-    currentOffset += 18;
+    currentOffset += 20;
+    hasAnyBadge = true;
   }
 
-  // 1. 图标 (紧凑对齐 18px 步进)
+  // 1. 图标
   if (node.icon && currentScale >= 0.45) {
     ctx.font = `13px ${fontFam}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(node.icon, node.x + currentOffset + 7, centerY + 0.8);
-    currentOffset += 18;
+    ctx.fillText(node.icon, node.x + currentOffset + 8, centerY + 0.8);
+    currentOffset += 20;
+    hasAnyBadge = true;
   } else if (node.icon) {
-    currentOffset += 18;
+    currentOffset += 20;
+    hasAnyBadge = true;
   }
 
-  // 2. 优先级 P1 ~ P4 (精巧微胶囊 20x14，21px 步进)
+  // 2. 优先级 P1 ~ P4
   if (node.priority && PRIORITY_COLORS[node.priority]) {
     if (currentScale >= 0.4) {
       const pColor = PRIORITY_COLORS[node.priority].bg;
@@ -72,17 +77,17 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
       ctx.textBaseline = "middle";
       ctx.fillText(node.priority, node.x + currentOffset + 10, centerY + 0.2);
     }
-    currentOffset += 21;
+    currentOffset += 23;
+    hasAnyBadge = true;
   }
 
-  // 3. 🌟 进度环多色阶高定渲染体系 (含 0% 未启动专属微靶心)
+  // 3. 🌟 进度环多色阶高定渲染体系
   const hasProgress = node.progress !== undefined && node.progress !== null && node.progress !== "";
   if (hasProgress) {
     if (currentScale >= 0.45) {
       const prgVal = parseInt(node.progress, 10) || 0;
-      const prgX = node.x + currentOffset + 7;
+      const prgX = node.x + currentOffset + 8;
 
-      // 多色阶色彩映射
       const prgColor = prgVal <= 0 ? (isDarkCanvas ? "#94a3b8" : "#86868b")
                      : prgVal <= 25 ? "#0071e3"
                      : prgVal <= 50 ? "#ff9500"
@@ -90,7 +95,6 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
                      : prgVal < 100 ? "#30b0c7"
                      : "#34c759";
 
-      // 外环轨道
       ctx.beginPath();
       ctx.arc(prgX, centerY, 5.2, 0, Math.PI * 2);
       ctx.strokeStyle = isDarkCanvas ? "rgba(255, 255, 255, 0.16)" : "rgba(0, 0, 0, 0.1)";
@@ -98,7 +102,6 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
       ctx.stroke();
 
       if (prgVal === 0) {
-        // 🌟 0% 特别设计：微靶心空心指示点，清晰表明已立项待动工
         ctx.beginPath();
         ctx.arc(prgX, centerY, 1.8, 0, Math.PI * 2);
         ctx.fillStyle = prgColor;
@@ -112,7 +115,6 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
         ctx.lineCap = "round";
         ctx.stroke();
 
-        // 100% 达成点亮中心绿实心成就核
         if (prgVal === 100) {
           ctx.beginPath();
           ctx.arc(prgX, centerY, 2.2, 0, Math.PI * 2);
@@ -121,30 +123,37 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
         }
       }
     }
-    currentOffset += 16;
+    currentOffset += 18;
+    hasAnyBadge = true;
   }
 
-  // 4. 备注指示符 (17px 步进)
+  // 4. 备注指示符
   if (node.note && currentScale >= 0.5) {
     ctx.font = `11.5px ${fontFam}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("📝", node.x + currentOffset + 6, centerY + 0.8);
-    currentOffset += 17;
+    ctx.fillText("📝", node.x + currentOffset + 7, centerY + 0.8);
+    currentOffset += 19;
+    hasAnyBadge = true;
   } else if (node.note) {
-    currentOffset += 17;
+    currentOffset += 19;
+    hasAnyBadge = true;
   }
 
-  // 4.5 🌟 深度链接指示符 (17px 步进)
+  // 4.5 🌟 深度链接指示符
   if (node.link && currentScale >= 0.5) {
     ctx.font = `11.5px ${fontFam}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("🔗", node.x + currentOffset + 6, centerY + 0.8);
-    currentOffset += 17;
+    ctx.fillText("🔗", node.x + currentOffset + 7, centerY + 0.8);
+    currentOffset += 19;
+    hasAnyBadge = true;
   } else if (node.link) {
-    currentOffset += 17;
+    currentOffset += 19;
+    hasAnyBadge = true;
   }
+
+  if (hasAnyBadge) currentOffset += 6; // 徽章与首字呼吸缓冲间隙
 
   // 5. 核心文字（匹配侧边栏：字号、粗细、斜体、删除线与颜色）
   
@@ -266,12 +275,12 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
     }
   }
 
-  // 6. 节点标签 (紧凑微胶囊对齐)
+  // 6. 节点标签 (舒展独立微胶囊)
   if (node.tags && Array.isArray(node.tags) && node.tags.length > 0 && currentScale >= 0.55) {
-    currentOffset += 5; // 紧贴文字
+    currentOffset += 8; // 正文与标签舒展间隙
     for (let tIdx = 0; tIdx < node.tags.length; tIdx++) {
       const tagText = String(node.tags[tIdx]);
-      const tagW = measureTextWidth(tagText, 9, "600", "normal") + 9;
+      const tagW = measureTextWidth(tagText, 9, "600", "normal") + 10;
       ctx.beginPath();
       drawAppleSquircle(ctx, node.x + currentOffset, centerY - 6.5, tagW, 13, 3.5);
       ctx.fillStyle = boxStyle === "solid" ? "rgba(255,255,255,0.2)" : (isDarkCanvas ? "rgba(255,255,255,0.1)" : "#f1f5f9");

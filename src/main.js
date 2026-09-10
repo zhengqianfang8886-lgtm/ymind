@@ -257,6 +257,9 @@ document.getElementById("btn-mode-outliner")?.addEventListener("click", () => {
     renderApp();
   });
 });
+document.getElementById("btn-export-snap")?.addEventListener("click", () => {
+  import("./js/ui/snapshot.js").then(m => m.openSnapshotModal());
+});
 document.getElementById("btn-mode-flashcards")?.addEventListener("click", () => {
   const t = getActiveTab();
   if (t?.isEncrypted && t?._isLocked) return;
@@ -384,7 +387,7 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
-initTabBar();
+initTabBar(renderApp, showHome);
 initMinimap();
 initEventListeners(renderApp);
 initHomeEvents(renderApp, showWorkspace);

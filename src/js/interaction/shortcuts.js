@@ -234,6 +234,11 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         }
         return;
       }
+      if (code === "KeyP" || key === "p" || key === "π") {
+        e.preventDefault();
+        import("../ui/snapshot.js").then(m => m.openSnapshotModal());
+        return;
+      }
       if (code === "KeyR" || key === "r" || key === "®") {
         e.preventDefault();
         const curTab = getActiveTab();

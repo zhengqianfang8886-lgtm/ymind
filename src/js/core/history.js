@@ -251,14 +251,15 @@ function applyCmd(cmd, root, targetTab = getActiveTab()) {
       if (parent) {
         if (!parent.children) parent.children = [];
         const insIdx = typeof cmd.index === "number" ? Math.min(cmd.index, parent.children.length) : parent.children.length;
-        parent.children.splice(insIdx, 0, cmd.node);
+        const nodeToInsert = (targetTab === null) ? sanitizeTreeForHistory(cmd.node) : cmd.node;
+        parent.children.splice(insIdx, 0, nodeToInsert);
       }
       break;
     }
     case COMMANDS.REMOVE_NODE: {
-      const parent = findParent(cmd.nodeId, root);
+      const parent = (cmd.oldParentId ? findNode(cmd.oldParentId, root) : null) || findParent(cmd.nodeId, root);
       if (parent && parent.children) {
-        parent.children = parent.children.filter(c => c.id !== cmd.nodeId);
+        parent.children = parent.children.filter(c => String(c.id) !== String(cmd.nodeId));
       }
       break;
     }
