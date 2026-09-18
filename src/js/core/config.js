@@ -20,7 +20,7 @@ export function getDefaultSettings() {
     focusFollowMode: "smooth",
     autoSaveInterval: "30",
     autoCheckUpdate: true,
-    githubRepo: "lfw/ymind-tauri"
+    githubRepo: "secure-artifacts/ymind-tauri"
   };
 }
 
@@ -31,6 +31,11 @@ export function getGlobalSettings() {
     cachedGlobalSettings = raw ? { ...getDefaultSettings(), ...JSON.parse(raw) } : getDefaultSettings();
   } catch {
     cachedGlobalSettings = getDefaultSettings();
+  }
+  // 自动迁移旧仓库配置至当前官方仓库
+  if (cachedGlobalSettings && (cachedGlobalSettings.githubRepo === "lfw/ymind-tauri" || !cachedGlobalSettings.githubRepo)) {
+    cachedGlobalSettings.githubRepo = "secure-artifacts/ymind-tauri";
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(cachedGlobalSettings)); } catch {}
   }
   return cachedGlobalSettings;
 }

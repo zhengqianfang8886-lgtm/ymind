@@ -97,6 +97,9 @@ export function compactMindNode(node) {
   const dueDate = data.dueDate || node.dueDate;
   if (dueDate) out.dueDate = dueDate;
 
+  const duration = data.duration || node.duration;
+  if (duration) out.duration = duration;
+
   if (data.collapsed || node.collapsed || data.expand === false) out.collapsed = true;
 
   const fontSize = data.fontSize || node.fontSize;
@@ -165,7 +168,7 @@ export async function serializeTabToPackage(tab) {
   return {
     filePackage: {
       fileType: "YMIND_PRO_DOCUMENT",
-      version: "3.0",
+      version: "3.0.0",
       isEncrypted: isEncrypted,
       title: tab?.title || presetFilename,
       layoutStructure: tab?.layoutStructure || "mindmap",
@@ -271,6 +274,7 @@ export function normalizeMindNode(n) {
     todo: Boolean(data.todo || n.todo),
     done: Boolean(data.done || n.done),
     dueDate: data.dueDate || n.dueDate || null,
+    duration: data.duration || n.duration || null,
     collapsed: Boolean(data.collapsed || n.collapsed || data.expand === false),
     fontSize: (() => {
       const raw = data.fontSize || n.fontSize;

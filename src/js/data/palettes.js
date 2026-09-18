@@ -223,3 +223,11 @@ export const CANVAS_PATTERNS = [
   { id: "honeycomb", label: "⬡ 六角蜂巢 (Honeycomb)" },
   { id: "none", label: "🚫 纯色无底纹 (None)" }
 ];
+
+export const DARK_CANVAS_THEMES = new Set([
+  "space-gray", "midnight-abyss", "prussian-navy", "slate-chalkboard", "cyber-violet", "obsidian-coffee"
+]);
+
+export function isDarkCanvasTheme(colorId) {
+  return Boolean(colorId && DARK_CANVAS_THEMES.has(colorId));
+}

@@ -148,11 +148,11 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         bus.emit(EVENTS.SHOW_HOME);
         return;
       }
-      // 处于单分支专注模式时，按 Esc 退出专注
+      // 处于单分支专注模式时，按 Esc 退出专注并合并局部沙箱
       const rootId = ctx?.mindData?.id || "root";
       if (ctx?.focusedRootId && ctx.focusedRootId !== rootId) {
         e.preventDefault();
-        ctx.focusedRootId = rootId;
+        ctx.focusBranch(rootId);
         ctx.isLayoutDirty = true;
         renderApp();
         smartAdaptiveCenter(null, true, ctx);
@@ -196,12 +196,9 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         e.preventDefault();
         const docCtx = getActiveDocumentContext();
         const primary = docCtx?.primarySelectedNode;
-        if (primary && primary.id !== docCtx?.focusedRootId) {
-          smartAdaptiveCenter(primary, true, docCtx);
-        } else {
-          smartAdaptiveCenter(null, true, docCtx);
-        }
-        showToast("🎯 已自适应定位");
+        // 🌟 Alt+C 用户主动操作：执行全景自适应缩放 (fitScale = true)
+        smartAdaptiveCenter(primary, true, docCtx, true);
+        showToast("🎯 已自适应居中全景");
         return;
       }
       if (code === "Digit1" || code === "Numpad1" || key === "1" || key === "¡") {

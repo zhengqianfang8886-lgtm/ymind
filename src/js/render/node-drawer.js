@@ -1,7 +1,10 @@
+import { getDurationBadgeStyle } from "../ui/task-duration.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
+import { getNodeTextGeometry } from "../geometry/text-metrics.js";
 import { getDueDateStatus } from "../ui/due-date.js";
-import { measureTextWidth, PRIORITY_COLORS, getActiveFontFamily } from "../geometry/layout.js";
+import { measureTextWidth, PRIORITY_COLORS, getActiveFontFamily, getEffectiveNodeTypography } from "../geometry/layout.js";
 import { state } from "../core/state.js";
+import { isDarkCanvasTheme } from "../data/palettes.js";
 
 export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentScale = 1.0) {
   if (currentScale < 0.28 && !isRootOfView) return;
@@ -9,7 +12,7 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
   const fontFam = getActiveFontFamily();
   const boxStyle = docCtx?.boxStyle || "squircle";
   const isGlobalDark = document.documentElement.getAttribute("data-theme") === "dark";
-  const isDarkCanvas = isGlobalDark || ["space-gray", "midnight-abyss", "prussian-navy", "slate-chalkboard", "cyber-violet", "obsidian-coffee"].includes(docCtx?.canvasBgColor);
+  const isDarkCanvas = isGlobalDark || isDarkCanvasTheme(docCtx?.canvasBgColor);
 
   const padX = Math.max(6, Math.round((node.width - (node.contentWidth || 0)) / 2));
   let currentOffset = padX;
@@ -127,36 +130,11 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
     hasAnyBadge = true;
   }
 
-  // 4. 备注指示符
-  if (node.note && currentScale >= 0.5) {
-    ctx.font = `11.5px ${fontFam}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("📝", node.x + currentOffset + 7, centerY + 0.8);
-    currentOffset += 19;
-    hasAnyBadge = true;
-  } else if (node.note) {
-    currentOffset += 19;
-    hasAnyBadge = true;
-  }
 
-  // 4.5 🌟 深度链接指示符
-  if (node.link && currentScale >= 0.5) {
-    ctx.font = `11.5px ${fontFam}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("🔗", node.x + currentOffset + 7, centerY + 0.8);
-    currentOffset += 19;
-    hasAnyBadge = true;
-  } else if (node.link) {
-    currentOffset += 19;
-    hasAnyBadge = true;
-  }
 
   if (hasAnyBadge) currentOffset += 6; // 徽章与首字呼吸缓冲间隙
 
-  // 5. 核心文字（匹配侧边栏：字号、粗细、斜体、删除线与颜色）
-  
+  // 5. 🌟 核心文字：基于 text-metrics 权威几何模型绘制 (Baseline Lock)
   let defaultFill = "#1d1d1f";
   if (isDarkCanvas) {
     defaultFill = "#ffffff";
@@ -166,34 +144,25 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
     defaultFill = "#ffffff";
   }
 
-  const finalFill = node.textColor && node.textColor !== "default" ? node.textColor : defaultFill;
-  const fontSize = node.fontSize ? parseFloat(node.fontSize) : (isRootOfView ? 18 : (level === 1 ? 14.5 : 13.5));
-  const fontWeight = node.fontWeight || (isRootOfView ? "700" : (level === 1 ? "600" : "500"));
-  const fontStyle = node.fontStyle || "normal";
-  const hasStrikethrough = node.textDecoration === "line-through" || Boolean(node.done);
+  const textGeo = getNodeTextGeometry(node, currentScale, { x: 0, y: 0 }, docCtx);
+  const finalFill = textGeo.typography.color || defaultFill;
+  const typo = textGeo.typography;
+  const hasStrikethrough = (node.textDecoration === "line-through") || Boolean(node.done);
 
   ctx.fillStyle = finalFill;
-  // 🌟 动态拼装 Canvas Font：支持 italic 与 normal
-  ctx.font = `${fontStyle !== "normal" ? fontStyle + " " : ""}${fontWeight} ${fontSize}px ${fontFam}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  const lines = node.lines || String(node.text ?? "").split(/\r?\n/);
-  const lineHeight = node.lineHeight || Math.round(fontSize * 1.35);
-  const totalH = (lines.length - 1) * lineHeight;
-  const textStartY = centerY - totalH / 2;
-  const textCenterX = node.x + currentOffset + (node.textWidth || 0) / 2;
+  ctx.font = `${typo.fontStyle !== "normal" ? typo.fontStyle + " " : ""}${typo.fontWeight} ${typo.fontSize}px ${typo.fontFamily}`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 
   const isRecall = Boolean(docCtx?.isRecallMode && !isRootOfView && !node._unmasked);
   const isEditing = Boolean(state.editingNodeId && state.editingNodeId === node.id);
 
   if (!isEditing) {
     if (isRecall) {
-      // 🌟 彻底防窥：100% 物理阻断文字绘制，渲染高定 Apple 磨砂防窥胶囊
-      const maskW = Math.max(34, (node.textWidth || 36) + 8);
-      const maskH = Math.max(18, totalH + lineHeight - 3);
-      const maskX = textCenterX - maskW / 2;
-      const maskY = centerY - maskH / 2;
+      const maskW = Math.max(34, textGeo.world.width + 10);
+      const maskH = Math.max(18, textGeo.world.height + 4);
+      const maskX = textGeo.world.x;
+      const maskY = textGeo.world.y;
 
       ctx.save();
       ctx.beginPath();
@@ -218,23 +187,23 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
       ctx.font = `bold 11px ${fontFam}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("•••", textCenterX, centerY + 0.5);
+      ctx.fillText("•••", maskX + maskW / 2, maskY + maskH / 2 + 0.5);
       ctx.restore();
     } else {
-      for (let lIdx = 0; lIdx < lines.length; lIdx++) {
-        const lineText = lines[lIdx];
-        const curLineY = textStartY + lIdx * lineHeight;
-        ctx.fillText(lineText, textCenterX, curLineY);
+      for (let lIdx = 0; lIdx < textGeo.world.lines.length; lIdx++) {
+        const lineText = textGeo.world.lines[lIdx];
+        const lineBaselineY = textGeo.world.firstLineBaseline + lIdx * textGeo.world.lineHeight;
+        ctx.fillText(lineText, textGeo.world.x, lineBaselineY);
 
-        // 🌟 绘制删除线（居中贯穿文字）
         if (hasStrikethrough) {
           ctx.save();
-          const lineW = measureTextWidth(lineText, fontSize, fontWeight, fontStyle);
+          const lineW = measureTextWidth(lineText, typo.fontSize, typo.fontWeight, typo.fontStyle);
           ctx.strokeStyle = finalFill;
-          ctx.lineWidth = Math.max(1.2, fontSize * 0.08);
+          ctx.lineWidth = Math.max(1.4, typo.fontSize * 0.08);
           ctx.beginPath();
-          ctx.moveTo(textCenterX - lineW / 2, curLineY + 0.5);
-          ctx.lineTo(textCenterX + lineW / 2, curLineY + 0.5);
+          const strikeY = lineBaselineY - typo.fontSize * 0.3;
+          ctx.moveTo(textGeo.world.x, strikeY);
+          ctx.lineTo(textGeo.world.x + lineW, strikeY);
           ctx.stroke();
           ctx.restore();
         }
@@ -242,7 +211,35 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
     }
   }
 
-  currentOffset += node.textWidth;
+  // 权威定位：后缀区域严格锚定在文本真实绘制终点，杜绝任何压字
+  currentOffset = (textGeo.world.x - node.x) + textGeo.world.width;
+
+  // 5.1 🌟 后置线索指示符：备注 📝 与 深度链接 🔗
+  node._noteRect = null;
+  if (node.note && currentScale >= 0.5) {
+    currentOffset += 4;
+    const noteX = node.x + currentOffset;
+    const noteY = centerY - 7;
+    node._noteRect = { x: noteX, y: noteY, width: 15, height: 14 };
+    ctx.font = `11px ${fontFam}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("📝", noteX + 7.5, centerY + 0.5);
+    currentOffset += 16;
+  }
+
+  node._linkRect = null;
+  if (node.link && currentScale >= 0.5) {
+    currentOffset += 3;
+    const linkX = node.x + currentOffset;
+    const linkY = centerY - 7;
+    node._linkRect = { x: linkX, y: linkY, width: 15, height: 14 };
+    ctx.font = `11px ${fontFam}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🔗", linkX + 7.5, centerY + 0.5);
+    currentOffset += 16;
+  }
 
   // 5.5 🌟 轻量截止日与倒计时胶囊 (自适应色彩变色)
   node._duePillRect = null;
@@ -250,7 +247,7 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
     const dueInfo = getDueDateStatus(node.dueDate, Boolean(node.done), isDarkCanvas);
     if (dueInfo) {
       currentOffset += 4;
-      const pillW = measureTextWidth(dueInfo.label, 8.5, "600", "normal") + 11;
+      const pillW = measureTextWidth(dueInfo.label, 8.5, "600", "normal", false) + 12;
       const pillH = 13;
       const pillX = node.x + currentOffset;
       const pillY = centerY - 6.5;
@@ -270,6 +267,37 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(dueInfo.label, pillX + pillW / 2, centerY + 0.2);
+
+      currentOffset += pillW + 1;
+    }
+  }
+
+  // 5.6 🌟 任务耗时微胶囊 (Apple Indigo 风格)
+  node._durationPillRect = null;
+  if (node.duration && currentScale >= 0.45) {
+    const durStyle = getDurationBadgeStyle(node.duration, Boolean(node.done), isDarkCanvas);
+    if (durStyle) {
+      currentOffset += 4;
+      const pillW = measureTextWidth(durStyle.label, 8.5, "600", "normal", false) + 12;
+      const pillH = 13;
+      const pillX = node.x + currentOffset;
+      const pillY = centerY - 6.5;
+
+      node._durationPillRect = { x: pillX, y: pillY, width: pillW, height: pillH };
+
+      ctx.beginPath();
+      drawAppleSquircle(ctx, pillX, pillY, pillW, pillH, 3.5);
+      ctx.fillStyle = durStyle.bg;
+      ctx.fill();
+      ctx.strokeStyle = durStyle.border;
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+
+      ctx.fillStyle = durStyle.color;
+      ctx.font = `600 8.5px ${fontFam}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(durStyle.label, pillX + pillW / 2, centerY + 0.2);
 
       currentOffset += pillW + 1;
     }
@@ -309,6 +337,9 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
       ctx.shadowOffsetY = 1;
     }
 
+    ctx.save();
+    ctx.globalAlpha = 1.0;
+
     ctx.beginPath();
     ctx.arc(badgeX, centerY, 7.5, 0, Math.PI * 2);
     ctx.fillStyle = isDarkCanvas ? "#1e293b" : "#ffffff";
@@ -327,5 +358,6 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(node.collapsed ? String(node.children.length) : "−", badgeX, centerY + 0.4);
+    ctx.restore();
   }
 }

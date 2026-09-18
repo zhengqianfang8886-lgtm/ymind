@@ -7,7 +7,7 @@ import { markNodeLayoutDirty } from "../geometry/layout.js";
 import { countNodes, findNode, findParent, getAncestors, sanitizeTreeForHistory, walkTree } from "./tree-utils.js";
 import { getGlobalSettings, saveGlobalSettings, getDefaultSettings, applyGlobalTypography } from "./config.js";
 import { canvasMachine, CanvasState } from "../interaction/canvas-machine.js";
-import { executeCommand, executeCompoundCommand, saveSnapshot, undo, redo, COMMANDS } from "./history.js";
+import { executeCommand, executeCompoundCommand, saveSnapshot, undo, redo, COMMANDS, startFocusSession, commitFocusSession } from "./history.js";
 
 export { countNodes, findNode, findParent, getAncestors, sanitizeTreeForHistory, walkTree };
 export { getGlobalSettings, saveGlobalSettings, getDefaultSettings, applyGlobalTypography };
@@ -68,8 +68,8 @@ export class DocumentContext {
     return this.tab.focusedRootId || this.tab.mindData?.id || "root";
   }
   set focusedRootId(val) {
-    this.tab.focusedRootId = val;
-    state.isLayoutDirty = true;
+    const nextRootId = val || this.tab.mindData?.id || "root";
+    this.focusBranch(nextRootId);
   }
 
   get currentRoot() {
@@ -143,8 +143,28 @@ export class DocumentContext {
   }
 
   focusBranch(rootId) {
-    this.focusedRootId = rootId || this.mindData?.id || "root";
-    this.markLayoutDirty(this.focusedRootId);
+    const nextRootId = rootId || this.mindData?.id || "root";
+    const currentId = this.tab.focusedRootId || this.tab.mindData?.id || "root";
+    if (currentId !== nextRootId) {
+      if (currentId !== (this.tab.mindData?.id || "root")) {
+        commitFocusSession(this.tab);
+      }
+      this.tab.focusedRootId = nextRootId;
+      state.isLayoutDirty = true;
+
+      // 🌟 核心：进入分支专注时，自动展开已收缩的分支，确保子节点完全可见
+      if (nextRootId !== (this.tab.mindData?.id || "root")) {
+        const targetNode = findNode(nextRootId, this.tab.mindData);
+        if (targetNode && targetNode.collapsed) {
+          targetNode.collapsed = false;
+        }
+      }
+
+      this.markLayoutDirty(nextRootId);
+      if (nextRootId !== (this.tab.mindData?.id || "root")) {
+        startFocusSession(this.tab, nextRootId);
+      }
+    }
   }
 
   mutate(mutator, isLayoutSensitive = false, dirtyNodeId = null) {
@@ -173,16 +193,23 @@ export class DocumentContext {
     ids.forEach(id => {
       const node = findNode(id, this.mindData);
       if (!node) return;
+      // 🌟 先克隆属性快照，杜绝 updaterFn 原地污染 oldAttrs
+      const oldAttrs = {};
+      ['fontSize', 'fontWeight', 'fontStyle', 'textDecoration', 'textColor'].forEach(k => {
+        oldAttrs[k] = node[k] !== undefined ? node[k] : null;
+      });
       const patches = updaterFn(node);
       if (!patches || typeof patches !== "object") return;
-      const oldAttrs = {};
+      
+      const realOldAttrs = {};
       for (const k of Object.keys(patches)) {
-        oldAttrs[k] = node[k] !== undefined ? node[k] : null;
+        realOldAttrs[k] = oldAttrs[k];
       }
+
       subCommands.push({
         type: COMMANDS.UPDATE_ATTRS,
         nodeId: node.id,
-        oldAttrs,
+        oldAttrs: realOldAttrs,
         newAttrs: patches
       });
       this.markLayoutDirty(node.id);
@@ -397,7 +424,14 @@ export function createNewTab(templateId = "mindmap-blank", customTitle = null) {
       y: typeof window !== "undefined" ? window.innerHeight / 2 - 40 : 250,
       scale: 1
     },
-    historyStack: [{ type: "SNAPSHOT", payload: sanitizeTreeForHistory(initialTree) }],
+    historyStack: [{
+      tree: sanitizeTreeForHistory(initialTree),
+      selectedIds: [initialTree.id || "root"],
+      targetNodeId: initialTree.id || "root",
+      actionLabel: "初始状态",
+      focusedRootId: initialTree.id || "root",
+      timestamp: Date.now()
+    }],
     historyIndex: 0,
     spatialIndex: new QuadTree(),
     versions: [],
@@ -454,7 +488,7 @@ export function createDocumentContext(tab = null) {
   return getDocumentContext(tab);
 }
 
-export { saveSnapshot, undo, redo, COMMANDS, executeCommand, executeCompoundCommand } from "./history.js";
+export { saveSnapshot, undo, redo, COMMANDS, executeCommand, executeCompoundCommand, startFocusSession, commitFocusSession } from "./history.js";
 
 export function deepSeverTree(node) {
   if (!node) return;

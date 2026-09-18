@@ -1,3 +1,18 @@
+export function cleanDialogText(str, maxLen = 140) {
+  if (!str) return "";
+  let s = String(str).trim();
+  // 彻底剔除所有生硬包裹字符 [xxx] 或 「xxx」，还原为纯净自然文本
+  s = s.replace(/[\[「]([^\]」]+)[\]」]/g, (match, inner) => {
+    const trimmed = inner.trim();
+    if (trimmed === "草稿") return "草稿 · ";
+    return trimmed;
+  });
+  if (s.length > maxLen) {
+    return s.slice(0, maxLen - 1) + "…";
+  }
+  return s;
+}
+
 export function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
@@ -25,7 +40,7 @@ export function showToast(message, duration = 2200) {
     }
   }
 
-  const rawMsg = String(message || "").trim();
+  const rawMsg = cleanDialogText(message, 45);
   // 匹配前置 Emoji 或特色符号 (如 🎯, 🌳, 💾, 🔒, 🚩, 🗑️ 等)
   const emojiMatch = rawMsg.match(/^(\p{Extended_Pictographic}|\uFE0F|[★☆⚡⚠️✅❌ℹ️])+[\s·]*/u);
   
@@ -156,7 +171,7 @@ export function appAlert({ title = "系统提示", message = "", type = "info", 
     icon: "ℹ️",
     type,
     title,
-    bodyHtml: `<p class="dialog-message">${escapeHtml(message)}</p>`,
+    bodyHtml: `<p class="dialog-message">${escapeHtml(cleanDialogText(message, 200))}</p>`,
     footerButtonsHtml: `<button id="dialog-btn-confirm" class="modal-btn modal-btn-primary">${escapeHtml(confirmText)}</button>`
   });
   return mountDialog(html, (overlay, cleanup) => {
@@ -171,7 +186,7 @@ export function appConfirm({ title = "请确认", message = "", confirmText = "�
     icon: isDanger ? "🗑️" : "⚠️",
     type: isDanger ? "danger" : "warning",
     title,
-    bodyHtml: `<p class="dialog-message">${escapeHtml(message)}</p>`,
+    bodyHtml: `<p class="dialog-message">${escapeHtml(cleanDialogText(message, 200))}</p>`,
     footerButtonsHtml: `
       <button id="dialog-btn-cancel" class="modal-btn modal-btn-secondary">${escapeHtml(cancelText)}</button>
       <button id="dialog-btn-confirm" class="modal-btn ${isDanger ? "modal-btn-danger" : "modal-btn-primary"}">${escapeHtml(confirmText)}</button>

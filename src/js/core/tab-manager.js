@@ -112,7 +112,7 @@ export async function closeTabWithConfirm(tabId, renderApp, showHome) {
     const isUnsavedDraft = !t.filePath;
     const ok = await appConfirm({
       title: isUnsavedDraft ? "草稿未保存至文件" : "未保存的修改",
-      message: `「${displayName}」尚未保存为本地文件。关闭标签页将退出当前编辑，确定要关闭吗？`,
+      message: `「${displayName}」尚未保存到本地文件，关闭将丢失未保存的修改，确定关闭吗？`,
       isDanger: true,
       confirmText: "确认关闭",
       cancelText: "继续编辑"
@@ -155,7 +155,7 @@ export function renderTabBar() {
   if (curTab) {
     const displayName = getTabDisplayFilename(curTab);
     const isDraft = !curTab.filePath;
-    document.title = (curTab.isDirty ? "● " : "") + (isDraft ? "[草稿] " : "") + displayName + " - YMind Pro";
+    document.title = (curTab.isDirty ? "● " : "") + (isDraft ? "草稿 · " : "") + displayName + " - YMind Pro";
   }
 
   const btnSave = document.getElementById("btn-save");
@@ -181,7 +181,7 @@ export function renderTabBar() {
     btnSave.title = btnTitle;
     btnSave.innerHTML = `
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline></svg>
-      <span>${btnText}</span>
+      <span class="save-btn-text">${btnText}</span>
       ${canSave ? `<span class="save-btn-dirty-dot"></span>` : ""}
     `;
   }
@@ -204,7 +204,7 @@ export function renderTabBar() {
     }
 
     item.className = `apple-tab-item ${isActive ? "active" : ""} ${t.isDirty || isDraft ? "is-dirty" : ""}`;
-    item.title = `${isDraft ? "[草稿] " : ""}${displayName}`;
+    item.title = `${isDraft ? "草稿 · " : ""}${displayName}`;
 
     const dirtyDot = (t.isDirty || isDraft) ? `<span class="tab-dirty-indicator"></span>` : "";
     const lockIcon = t.isEncrypted ? `<span style="font-size:10px;margin-right:2px;">🔒</span>` : "";

@@ -123,48 +123,23 @@ export class QuadTree {
     return null;
   }
 
-  pickCollapseBadge(wx, wy, focusedRootId, isVisibleFn = null, hitRadius = 18, rootNode = null) {
+  pickCollapseBadge(wx, wy, focusedRootId, isVisibleFn = null, hitRadius = 18) {
     const pad = Math.max(18, hitRadius);
-
-    // 🌟 第一优先：直接在当前可见树上做实时渲染坐标探测，彻底杜绝四叉树静态包围盒导致的动画脱靶
-    if (rootNode) {
-      const candidates = [];
-      const stack = [rootNode];
-      while (stack.length > 0) {
-        const curr = stack.pop();
-        if (!curr) continue;
-        if (curr.children && curr.children.length > 0 && curr.id !== focusedRootId) {
-          candidates.push(curr);
-        }
-        if (curr.children && !curr.collapsed) {
-          for (let i = curr.children.length - 1; i >= 0; i--) {
-            stack.push(curr.children[i]);
-          }
-        }
-      }
-
-      for (let i = candidates.length - 1; i >= 0; i--) {
-        const n = candidates[i];
-        if (isVisibleFn && !isVisibleFn(n.id)) continue;
-        const nx = (n._curX !== undefined && Number.isFinite(n._curX)) ? n._curX : (n.x || 0);
-        const ny = (n._curY !== undefined && Number.isFinite(n._curY)) ? n._curY : (n.y || 0);
-        const bx = (n.branchDirection === "left") ? nx : (nx + (n.width || 80));
-        const by = ny + (n.height || 36) / 2;
+    // 扩大搜索包围盒，确保动画运动过程中的实时坐标均可被检索
+    const searchPad = Math.max(80, pad + 50);
+    const searchBox = { x: wx - searchPad, y: wy - searchPad, width: searchPad * 2, height: searchPad * 2 };
+    const candidates = this.queryItems(searchBox);
+    for (let i = 0; i < candidates.length; i++) {
+      const n = candidates[i].node;
+      if (isVisibleFn && !isVisibleFn(n.id)) continue;
+      if (n.children && n.children.length > 0 && n.id !== focusedRootId) {
+        // 优先基于肉眼可见的实时动画坐标计算，彻底杜绝快速连击判定脱靶
+        const nx = (n._curX !== undefined && Number.isFinite(n._curX)) ? n._curX : n.x;
+        const ny = (n._curY !== undefined && Number.isFinite(n._curY)) ? n._curY : n.y;
+        const bx = (n.branchDirection === "left") ? nx : (nx + n.width);
+        const by = ny + n.height / 2;
         if (Math.hypot(wx - bx, wy - by) <= pad) return n;
       }
-      return null;
-    }
-
-    const allItems = this.queryItems({ x: -100000, y: -100000, width: 200000, height: 200000 });
-    for (let i = allItems.length - 1; i >= 0; i--) {
-      const n = allItems[i].node;
-      if (!n || !n.children || n.children.length === 0 || n.id === focusedRootId) continue;
-      if (isVisibleFn && !isVisibleFn(n.id)) continue;
-      const nx = (n._curX !== undefined && Number.isFinite(n._curX)) ? n._curX : (n.x || 0);
-      const ny = (n._curY !== undefined && Number.isFinite(n._curY)) ? n._curY : (n.y || 0);
-      const bx = (n.branchDirection === "left") ? nx : (nx + (n.width || 80));
-      const by = ny + (n.height || 36) / 2;
-      if (Math.hypot(wx - bx, wy - by) <= pad) return n;
     }
     return null;
   }

@@ -143,7 +143,7 @@ export function springAnimateTo(targetX, targetY, targetScale = camera.transform
 }
 
 // 🌟 深度打磨自适应定焦：侧边栏感知、多级上下文黄金分割、防突兀抗震颤
-export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx = null) {
+export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx = null, fitScale = false) {
   const ctx = (customCtx && customCtx.tab) ? customCtx : (getActiveTab()?._context || null);
   const currentRoot = ctx ? (findNode(ctx.focusedRootId, ctx.mindData) || ctx.mindData) : null;
   if (!currentRoot) return;
@@ -152,7 +152,7 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
   const hasWin = typeof window !== "undefined";
   const vp = hasDoc ? document.getElementById("viewport") : null;
 
-  // 🌟 侧边栏感知：若检查器展开，自动将目标可见中心偏置，绝不遮挡节点
+  // 侧边栏感知对齐
   const isSidebarOpen = Boolean(
     hasDoc && (
       document.querySelector(".workspace-body-layout.sidebar-open") ||
@@ -166,7 +166,6 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
   const usableCenterX = usableW / 2;
   const usableCenterY = usableH / 2;
 
-  // 若节点未曾计算过坐标，先跑一次几何解算
   if (currentRoot.x === undefined || currentRoot.y === undefined) {
     computeLayout(currentRoot, 0, ctx.focusedRootId, ctx.layoutStructure, ctx.nodeSpacing || "normal");
     assignCoordinates(currentRoot, 0, 0, ctx.focusedRootId, ctx.layoutStructure, null, null, ctx.colorPalette || "apple-classic", ctx.nodeSpacing || "normal", ctx.spatialIndex);
@@ -180,41 +179,12 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
     targetNode = nodeOrId;
   }
 
-  const rootId = ctx.focusedRootId || currentRoot.id;
-  const isTargetRoot = targetNode.id === rootId && !nodeOrId;
-  const hasExpandedChildren = Boolean(targetNode.children && targetNode.children.length > 0 && !targetNode.collapsed);
-
+  // 🌟 核心铁律：默认 100% 锁定并保留用户当前的视口缩放比例，绝不擅自篡改！
   let targetScale = camera.transform.scale;
   let centerX, centerY;
 
-  if (isTargetRoot) {
-    // 🌟 1. 全图全景回正：精确测算全景包围盒，自适应缩放呈现全貌
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of walkTree(currentRoot, { skipCollapsed: true })) {
-      if (n.x !== undefined && n.y !== undefined) {
-        minX = Math.min(minX, n.x);
-        maxX = Math.max(maxX, n.x + (n.width || 80));
-        minY = Math.min(minY, n.y);
-        maxY = Math.max(maxY, n.y + (n.height || 36));
-      }
-    }
-
-    if (minX === Infinity) {
-      minX = 0; maxX = currentRoot.width || 120;
-      minY = 0; maxY = currentRoot.height || 44;
-    }
-
-    const padX = Math.max(80, usableW * 0.12);
-    const padY = Math.max(60, usableH * 0.12);
-    const totalW = (maxX - minX) + padX * 2;
-    const totalH = (maxY - minY) + padY * 2;
-
-    const fitScale = Math.min(usableW / totalW, usableH / totalH);
-    targetScale = Math.max(0.25, Math.min(1.05, fitScale));
-    centerX = (minX + maxX) / 2;
-    centerY = (minY + maxY) / 2;
-  } else if (hasExpandedChildren) {
-    // 🌟 2. 展开分支群组聚焦：兼顾包围盒与用户当前阅读比例，拒绝突兀暴缩
+  if (fitScale) {
+    // 仅在用户明确主动触发（如点击“自适应居中”或双击空白处）时，才计算全景缩放比
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const n of walkTree(targetNode, { skipCollapsed: true })) {
       if (n.x !== undefined && n.y !== undefined) {
@@ -225,33 +195,49 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
       }
     }
 
-    const padX = 90, padY = 70;
-    const totalW = (maxX - minX) + padX * 2;
-    const totalH = (maxY - minY) + padY * 2;
-    const fitScale = Math.min(usableW / totalW, usableH / totalH);
-
-    // 若当前缩放比例能较为舒适地容纳分支（未严重溢出），尽量维持用户当前阅读比例
-    if (targetScale * totalW <= usableW * 1.15 && targetScale * totalH <= usableH * 1.15 && targetScale >= 0.65 && targetScale <= 1.25) {
-      // 保持当前 scale
-    } else {
-      targetScale = Math.max(0.45, Math.min(1.15, fitScale));
+    if (minX === Infinity) {
+      minX = targetNode.x || 0;
+      maxX = minX + (targetNode.width || 80);
+      minY = targetNode.y || 0;
+      maxY = minY + (targetNode.height || 36);
     }
 
-    // 朝分支生长方向做微黄金比例偏置（前向预留视野）
-    const dir = targetNode.branchDirection;
-    const biasX = dir === "right" ? -15 : (dir === "left" ? 15 : 0);
-    centerX = (minX + maxX) / 2 + biasX;
+    const padX = Math.max(80, usableW * 0.12);
+    const padY = Math.max(60, usableH * 0.12);
+    const totalW = (maxX - minX) + padX * 2;
+    const totalH = (maxY - minY) + padY * 2;
+
+    const calculatedFit = Math.min(usableW / totalW, usableH / totalH);
+    targetScale = Math.max(0.25, Math.min(1.05, calculatedFit));
+    centerX = (minX + maxX) / 2;
     centerY = (minY + maxY) / 2;
   } else {
-    // 🌟 3. 单节点高精定焦：严格以目标节点为视觉重心，绝不再强行回退父节点导致错乱跳动
-    const nodeW = targetNode.width || 80;
-    const nodeH = targetNode.height || 36;
-    centerX = targetNode.x + nodeW / 2;
-    centerY = targetNode.y + nodeH / 2;
-
-    // 保持舒适度，仅在极端过小/过大时微调
-    if (targetScale < 0.7) targetScale = 0.88;
-    else if (targetScale > 1.35) targetScale = 1.15;
+    // 🌟 视距锁定模式：仅平移对齐几何重心，保持当前 targetScale 绝对恒定
+    const hasExpandedChildren = Boolean(targetNode.children && targetNode.children.length > 0 && !targetNode.collapsed);
+    if (targetNode.id === (ctx.focusedRootId || currentRoot.id) || hasExpandedChildren) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const n of walkTree(targetNode, { skipCollapsed: true })) {
+        if (n.x !== undefined && n.y !== undefined) {
+          minX = Math.min(minX, n.x);
+          maxX = Math.max(maxX, n.x + (n.width || 80));
+          minY = Math.min(minY, n.y);
+          maxY = Math.max(maxY, n.y + (n.height || 36));
+        }
+      }
+      if (minX === Infinity) {
+        minX = targetNode.x || 0;
+        maxX = minX + (targetNode.width || 80);
+        minY = targetNode.y || 0;
+        maxY = minY + (targetNode.height || 36);
+      }
+      centerX = (minX + maxX) / 2;
+      centerY = (minY + maxY) / 2;
+    } else {
+      const nodeW = targetNode.width || 80;
+      const nodeH = targetNode.height || 36;
+      centerX = targetNode.x + nodeW / 2;
+      centerY = targetNode.y + nodeH / 2;
+    }
   }
 
   const targetX = usableCenterX - centerX * targetScale;

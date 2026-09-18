@@ -59,11 +59,25 @@ export interface HistoryCommand {
   commands?: HistoryCommand[];
 }
 
+export interface HistorySnapshotEntry {
+  tree: MindNode;
+  selectedIds?: string[];
+  targetNodeId?: string;
+  actionLabel?: string;
+  focusedRootId?: string;
+  timestamp?: number;
+  type?: string;
+  payload?: any;
+  _rawJson?: string;
+}
+
 export interface DocumentTab {
   id: string;
   title: string;
   filePath: string | null;
   isDirty: boolean;
+  isLayoutDirty?: boolean;
+  isRecallMode?: boolean;
   mindData: MindNode | null;
   selectedIds: Set<string>;
   focusedRootId: string;
@@ -76,7 +90,7 @@ export interface DocumentTab {
   canvasBgPattern: string;
   viewMode: string;
   camera: { x: number; y: number; scale: number };
-  historyStack: Array<{ type: string; payload: any; _rawJson?: string }>;
+  historyStack: Array<HistorySnapshotEntry>;
   historyIndex: number;
   spatialIndex: any;
   versions: any[];
@@ -85,6 +99,9 @@ export interface DocumentTab {
   passwordHint?: string;
   encryptedVault?: any;
   _isLocked?: boolean;
+  _skipAnimation?: boolean;
+  _fileHandle?: any;
+  _context?: any;
 }
 
 export interface DocumentContext {

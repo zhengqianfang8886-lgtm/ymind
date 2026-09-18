@@ -133,7 +133,7 @@ export const TEMPLATES = {
             {
               "id": "tour_3_2",
               "text": "访问 GitHub 官方代码仓库",
-              "link": "https://github.com/lfw/ymind-tauri",
+              "link": "https://github.com/secure-artifacts/ymind-tauri",
               "note": "点击 🔗 将调起系统默认浏览器访问外部网址。",
               "children": []
             },

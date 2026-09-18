@@ -22,19 +22,9 @@ class NodeAnimator {
     return Boolean(node && this.animatingNodes.has(node));
   }
 
-  // 🌟 手动分支展开：直接将子节点初态绑定在父节点边缘，并彻底清除非法残留的收拢动画条目
+  // 🌟 手动分支展开：直接将子节点初态绑定在父节点边缘，严禁删除 _curX 防止第 0 帧跳跃到终点闪烁
   prepareExpand(parentNode) {
     if (!parentNode || !parentNode.children) return;
-
-    // 彻底清除正在收拢列表中的同分支后代，杜绝双向动画重叠拉扯与残影
-    const collectSubtreeIds = (n, set = new Set()) => {
-      if (!n) return set;
-      set.add(n.id);
-      if (n.children) n.children.forEach(c => collectSubtreeIds(c, set));
-      return set;
-    };
-    const affectedIds = collectSubtreeIds(parentNode);
-    this.collapsingEntries = this.collapsingEntries.filter(e => !affectedIds.has(e.node?.id));
 
     const pw = parentNode.width || 80;
     const ph = parentNode.height || 36;
@@ -52,6 +42,7 @@ class NodeAnimator {
       this.animatingNodes.delete(c);
       if (c.id) this.nodeStateMap.delete(c.id);
 
+      // 直接初始化为父节点所在位置，杜绝 _curX 为空导致画面在终点闪现 1 帧
       c._curX = originX - (dir === "left" ? (c.width || 80) : 0);
       c._curY = originY - (c.height || 36) / 2;
       c._vx = 0;
@@ -60,8 +51,7 @@ class NodeAnimator {
       c._curAlpha = 0.0;
       c._isExpanding = true;
 
-      // 仅当子节点本身是展开状态时，其后代才递归初始化，尊重真实折叠语义
-      if (c.children && c.children.length > 0 && !c.collapsed) {
+      if (c.children && c.children.length > 0) {
         for (let i = 0; i < c.children.length; i++) stack.push(c.children[i]);
       }
     }
@@ -70,17 +60,6 @@ class NodeAnimator {
   // 🌟 分支收拢动效：捕获正在收起的子分支，平滑吸入父节点折叠按钮中并淡出
   collapseBranch(parentNode) {
     if (!parentNode || !parentNode.children || parentNode.children.length === 0) return;
-
-    // 清除既有收拢条目中冲突的重复项，保证单一真相源
-    const collectSubtreeIds = (n, set = new Set()) => {
-      if (!n) return set;
-      set.add(n.id);
-      if (n.children) n.children.forEach(c => collectSubtreeIds(c, set));
-      return set;
-    };
-    const affectedIds = collectSubtreeIds(parentNode);
-    affectedIds.delete(parentNode.id);
-    this.collapsingEntries = this.collapsingEntries.filter(e => !affectedIds.has(e.node?.id));
 
     const pw = parentNode.width || 80;
     const ph = parentNode.height || 36;

@@ -160,9 +160,9 @@ export async function promptEditDueDate(node) {
   if (!node) return;
   const currentDue = node.dueDate || "";
   const newDue = await appPrompt({
-    title: "设置轻量截止日期",
-    message: "支持自然短语（今天、明天、下周五）或短日期（09-25、2026-10-01），清空则移除",
-    placeholder: "例如: 09-25 或 明天",
+    title: "设置截止日期",
+    message: "输入自然短语（如：今天、明天、下周五）或日期（如：09-25），留空并确认可清除截止日期",
+    placeholder: "例如：今天 或 09-25",
     defaultValue: currentDue
   });
 

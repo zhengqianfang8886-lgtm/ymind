@@ -293,7 +293,7 @@ export function initSettingsViewEvents(renderApp) {
       canvasBgColor: customSelectRegistry.get("wrap-setting-default-bg-color")?.getValue() || "studio-white",
       canvasBgPattern: customSelectRegistry.get("wrap-setting-default-bg-pattern")?.getValue() || "dots",
       autoSaveInterval: customSelectRegistry.get("wrap-setting-auto-save")?.getValue() || "30",
-      githubRepo: document.getElementById("setting-github-repo")?.value.trim() || "lfw/ymind-tauri",
+      githubRepo: document.getElementById("setting-github-repo")?.value.trim() || "secure-artifacts/ymind-tauri",
       focusFollowMode: customSelectRegistry.get("wrap-setting-focus-follow")?.getValue() || "smooth"
     };
 

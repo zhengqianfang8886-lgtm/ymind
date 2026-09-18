@@ -246,6 +246,7 @@ export function sanitizeTreeForHistory(node) {
     todo: Boolean(node.todo),
     done: Boolean(node.done),
     dueDate: node.dueDate || null,
+    duration: node.duration || null,
     collapsed: Boolean(node.collapsed),
     fontSize: node.fontSize || null,
     fontWeight: node.fontWeight || null,

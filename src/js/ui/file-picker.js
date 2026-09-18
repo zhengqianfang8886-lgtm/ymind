@@ -88,58 +88,107 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
     modal.innerHTML = `
       <div class="apple-modal-card apple-file-picker-card">
         <div class="fp-header-bar">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <div class="modal-header-icon primary" style="font-size:18px;">${mode === "open" ? "📂" : "💾"}</div>
-            <div class="modal-title-wrap">
-              <h3 class="apple-modal-title">${mode === "open" ? "打开思维导图文件" : "保存思维导图文件"}</h3>
-              <span style="font-size:11px;color:var(--text-tertiary);">原生高定极速通道 · 支持双击快速直达与智能路径记忆</span>
+          <div class="fp-header-left">
+            <div class="fp-header-icon">
+              ${mode === "open" ? `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
+              ` : `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                  <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                </svg>
+              `}
+            </div>
+            <div class="fp-header-titles">
+              <h3 class="fp-header-title">${mode === "open" ? "打开思维导图文件" : "存储思维导图"}</h3>
+              <span class="fp-header-sub">${mode === "open" ? "选取本地 .ymind 或兼容思维导图文件以载入工作区" : "指定导图的目标存储目录与文件名"}</span>
             </div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <button id="fp-btn-mkdir" class="modal-btn modal-btn-secondary" style="padding:4px 10px;font-size:11.5px;" title="在当前目录下新建文件夹">
-              <span>📁+ 新建文件夹</span>
+            <button id="fp-btn-mkdir" class="modal-btn modal-btn-secondary" style="padding:6px 12px;font-size:12px;" title="在当前目录下新建文件夹">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:2px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+              <span>新建文件夹</span>
             </button>
             <button id="fp-close-x" class="inspector-close-btn" style="width:28px;height:28px;">✕</button>
           </div>
         </div>
 
         <div class="fp-nav-toolbar">
-          <button id="fp-btn-back" class="fp-tool-btn" title="后退 (Alt+Left)">◀</button>
-          <button id="fp-btn-fwd" class="fp-tool-btn" title="前进 (Alt+Right)">▶</button>
-          <button id="fp-btn-up" class="fp-tool-btn" title="上一层目录 (Backspace)">⬆</button>
-          <button id="fp-btn-refresh" class="fp-tool-btn" title="刷新目录">🔄</button>
-
-          <div id="fp-address-box" class="fp-breadcrumb-trail" title="单击路径可编辑绝对路径">
-            <div id="fp-breadcrumbs" style="display:flex;align-items:center;gap:2px;"></div>
-            <input id="fp-direct-path" class="fp-path-direct-input hidden" placeholder="输入路径后按回车跳转..." />
+          <div class="fp-nav-group">
+            <button id="fp-btn-back" class="fp-tool-btn" title="后退 (Alt+Left)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <button id="fp-btn-fwd" class="fp-tool-btn" title="前进 (Alt+Right)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            </button>
+            <button id="fp-btn-up" class="fp-tool-btn" title="上一层目录 (Backspace)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            </button>
           </div>
 
-          <input id="fp-search" type="text" placeholder="🔍 过滤当前项..." style="width:125px;font-size:11.5px;padding:4px 8px;border:none;background:rgba(0,0,0,0.05);border-radius:6px;outline:none;" />
+          <button id="fp-btn-refresh" class="fp-tool-btn" title="重新读取目录" style="border:1px solid rgba(0,0,0,0.06);">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+          </button>
+
+          <div id="fp-address-box" class="fp-breadcrumb-trail" title="点击可直接编辑物理路径">
+            <div id="fp-breadcrumbs" style="display:flex;align-items:center;gap:2px;"></div>
+            <input id="fp-direct-path" class="fp-path-direct-input hidden" placeholder="输入绝对路径按回车直达..." />
+          </div>
+
+          <div class="fp-search-box">
+            <span class="fp-search-icon">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </span>
+            <input id="fp-search" class="fp-search-input" type="text" placeholder="过滤项目..." autocomplete="off" spellcheck="false" />
+          </div>
         </div>
 
         <div class="fp-body">
           <aside class="fp-sidebar">
-            <div class="fp-sidebar-title">系统位置</div>
-            <div class="fp-place-item" data-path="${escapeHtml(places.home)}"><span>🏠</span><span>主目录</span></div>
-            ${places.documents ? `<div class="fp-place-item" data-path="${escapeHtml(places.documents)}"><span>📄</span><span>文档</span></div>` : ""}
-            ${places.desktop ? `<div class="fp-place-item" data-path="${escapeHtml(places.desktop)}"><span>🖥️</span><span>桌面</span></div>` : ""}
-            ${places.downloads ? `<div class="fp-place-item" data-path="${escapeHtml(places.downloads)}"><span>📥</span><span>下载</span></div>` : ""}
-            <div class="fp-place-item" data-path="/"><span>💾</span><span>根目录 (/)</span></div>
+            <div class="fp-sidebar-title">位置</div>
+            <div class="fp-place-item" data-path="${escapeHtml(places.home)}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+              <span>主目录</span>
+            </div>
+            ${places.documents ? `
+              <div class="fp-place-item" data-path="${escapeHtml(places.documents)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                <span>文稿</span>
+              </div>
+            ` : ""}
+            ${places.desktop ? `
+              <div class="fp-place-item" data-path="${escapeHtml(places.desktop)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                <span>桌面</span>
+              </div>
+            ` : ""}
+            ${places.downloads ? `
+              <div class="fp-place-item" data-path="${escapeHtml(places.downloads)}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>下载</span>
+              </div>
+            ` : ""}
+            <div class="fp-place-item" data-path="/">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+              <span>系统盘 (/)</span>
+            </div>
 
-            <div class="fp-sidebar-title" style="margin-top:6px;">最近访问</div>
-            <div id="fp-recent-places-list" style="display:flex;flex-direction:column;gap:2px;"></div>
+            <div class="fp-sidebar-title" style="margin-top:8px;">最近使用</div>
+            <div id="fp-recent-places-list" style="display:flex;flex-direction:column;gap:1px;"></div>
           </aside>
 
           <main class="fp-content-area">
             <div class="fp-table-header">
               <div class="fp-th-col" data-sort="name" style="flex:1;">
-                <span>名称</span><span id="sort-icon-name">▲</span>
+                <span>名称</span><span id="sort-icon-name" style="font-size:10px;opacity:0.7;">▲</span>
               </div>
               <div class="fp-th-col" data-sort="date" style="width:130px;">
-                <span>修改日期</span><span id="sort-icon-date"></span>
+                <span>修改时间</span><span id="sort-icon-date" style="font-size:10px;opacity:0.7;"></span>
               </div>
               <div class="fp-th-col" data-sort="size" style="width:75px;justify-content:flex-end;">
-                <span>大小</span><span id="sort-icon-size"></span>
+                <span>大小</span><span id="sort-icon-size" style="font-size:10px;opacity:0.7;"></span>
               </div>
             </div>
             <div id="fp-list-view" class="fp-file-list" tabindex="0"></div>
@@ -147,20 +196,20 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
         </div>
 
         <div class="fp-footer">
-          <div style="flex:1;display:flex;align-items:center;gap:8px;min-width:0;">
+          <div style="flex:1;display:flex;align-items:center;gap:10px;min-width:0;">
             ${mode === "save" ? `
-              <span style="font-size:12px;font-weight:700;color:var(--text-primary);flex-shrink:0;">保存文件名:</span>
-              <input id="fp-filename-input" class="apple-modal-input" style="padding:6px 10px;font-size:12px;font-weight:600;" value="${escapeHtml(defaultName)}" />
+              <span style="font-size:12px;font-weight:600;color:var(--text-secondary);flex-shrink:0;">保存为:</span>
+              <input id="fp-filename-input" class="apple-modal-input" style="padding:6px 12px;font-size:12.5px;font-weight:600;max-width:320px;" value="${escapeHtml(defaultName)}" />
             ` : `
-              <span style="font-size:12px;color:var(--text-tertiary);flex-shrink:0;">文件格式:</span>
-              <button class="fp-filter-pill active" data-filter="all-mind">全部思维导图</button>
-              <button class="fp-filter-pill" data-filter="ymind">.ymind</button>
+              <span style="font-size:11.5px;color:var(--text-tertiary);flex-shrink:0;">显示范围:</span>
+              <button class="fp-filter-pill active" data-filter="all-mind">思维导图 (*.ymind; *.xmind)</button>
+              <button class="fp-filter-pill" data-filter="ymind">仅 YMind 原生 (*.ymind)</button>
               <button class="fp-filter-pill" data-filter="all">所有文件</button>
             `}
           </div>
-          <div style="display:flex;gap:8px;flex-shrink:0;">
+          <div style="display:flex;gap:10px;flex-shrink:0;">
             <button id="fp-btn-cancel" class="modal-btn modal-btn-secondary">取消</button>
-            <button id="fp-btn-confirm" class="modal-btn modal-btn-primary">${mode === "open" ? "打开" : "保存到此处"}</button>
+            <button id="fp-btn-confirm" class="modal-btn modal-btn-primary">${mode === "open" ? "打开" : "存储"}</button>
           </div>
         </div>
       </div>
@@ -255,10 +304,11 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       if (!box) return;
       const recents = getRecentDirs();
       box.innerHTML = recents.map(r => {
-        const shortName = r.split("/").pop() || r;
+        const shortName = r.split(/[\\/]/).filter(Boolean).pop() || r;
         return `
           <div class="fp-place-item" data-path="${escapeHtml(r)}" title="${escapeHtml(r)}">
-            <span>📁</span><span style="font-size:11px;">${escapeHtml(shortName)}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span>${escapeHtml(shortName)}</span>
           </div>
         `;
       }).join("");
@@ -346,11 +396,23 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       }
     };
 
+    function normalizeSystemPath(p) {
+      if (!p) return "/";
+      let clean = String(p).trim().replace(/\\+/g, "/").replace(/\/+/g, "/");
+      const isWindowsDisk = /^[a-zA-Z]:/i.test(clean);
+      if (!isWindowsDisk && !clean.startsWith("/")) {
+        clean = "/" + clean;
+      }
+      if (clean.length > 1 && clean.endsWith("/")) {
+        if (!isWindowsDisk || clean.length > 3) {
+          clean = clean.slice(0, -1);
+        }
+      }
+      return clean;
+    }
+
     function navigateTo(targetPath, recordHistory = true) {
-      let clean = (targetPath || "/").replace(/\\+/g, "/").replace(/\/+/g, "/");
-      if (clean.length > 1 && clean.endsWith("/")) clean = clean.slice(0, -1);
-      if (!clean.startsWith("/")) clean = "/" + clean;
-      currentDir = clean;
+      currentDir = normalizeSystemPath(targetPath);
       recordRecentDir(currentDir);
       if (recordHistory) {
         if (navHistoryIndex < navHistory.length - 1) navHistory.splice(navHistoryIndex + 1);
@@ -362,21 +424,27 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
 
     function renderBreadcrumbs() {
       breadcrumbBox.innerHTML = "";
-      const parts = currentDir.split("/").filter(Boolean);
+      const isWin = /^[a-zA-Z]:/i.test(currentDir);
+      const parts = currentDir.split(/[\\/]/).filter(Boolean);
       let accPath = "";
 
       const rootCrumb = document.createElement("span");
       rootCrumb.className = `fp-breadcrumb-crumb ${parts.length === 0 ? "current" : ""}`;
-      rootCrumb.innerText = "根目录 /";
-      rootCrumb.onclick = () => navigateTo("/");
+      rootCrumb.innerText = isWin ? (parts[0] || "本地磁盘") : "/";
+      rootCrumb.onclick = () => navigateTo(isWin ? (parts[0] + "/") : "/");
       breadcrumbBox.appendChild(rootCrumb);
 
-      parts.forEach((p, idx) => {
+      const startIndex = isWin ? 1 : 0;
+      accPath = isWin ? parts[0] : "";
+
+      for (let idx = startIndex; idx < parts.length; idx++) {
+        const p = parts[idx];
         accPath += "/" + p;
         const target = accPath;
+
         const sep = document.createElement("span");
+        sep.className = "fp-breadcrumb-sep";
         sep.innerText = "›";
-        sep.style.color = "var(--text-tertiary)";
         breadcrumbBox.appendChild(sep);
 
         const crumb = document.createElement("span");
@@ -386,7 +454,7 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
           crumb.onclick = () => navigateTo(target);
         }
         breadcrumbBox.appendChild(crumb);
-      });
+      }
       breadcrumbBox.scrollLeft = breadcrumbBox.scrollWidth;
     }
 
@@ -432,7 +500,12 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       });
 
       if (filtered.length === 0) {
-        listContainer.innerHTML = `<div style="padding:40px 0;text-align:center;color:var(--text-tertiary);font-size:12px;"><span style="font-size:24px;display:block;margin-bottom:6px;">📂</span>此文件夹为空</div>`;
+        listContainer.innerHTML = `
+          <div style="padding:48px 0;text-align:center;color:var(--text-tertiary);font-size:12px;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="margin:0 auto 8px;display:block;opacity:0.5;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <span>此文件夹为空</span>
+          </div>
+        `;
         return;
       }
 
@@ -441,26 +514,32 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
         row.className = "fp-file-row";
         row.dataset.idx = idx;
 
-        const isYMind = /\.(ymind|json|mind)$/i.test(entry.name);
+        const isYMind = /\.(ymind|mind|json)$/i.test(entry.name);
         const isXMind = /\.xmind$/i.test(entry.name);
 
-        let icon = "📄";
-        let badgeTag = "";
+        let iconSvg = "";
+        let badgeHtml = "";
+
         if (entry.is_dir) {
-          icon = "📁";
+          iconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="#60a5fa" stroke="#2563eb" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`;
         } else if (isYMind) {
-          icon = "🧠";
-          badgeTag = `<span style="font-size:10px;background:rgba(0,113,227,0.1);color:var(--apple-blue);padding:1px 5px;border-radius:4px;margin-left:6px;font-weight:600;">YMind</span>`;
+          iconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0071e3" stroke-width="2.2"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v6m0 6v6M3 12h6m6 0h6"></path></svg>`;
+          badgeHtml = `<span class="fp-file-badge" style="background:rgba(0,113,227,0.08);color:var(--apple-blue);">导图</span>`;
         } else if (isXMind) {
-          icon = "📑";
-          badgeTag = `<span style="font-size:10px;background:rgba(255,149,0,0.1);color:#d97706;padding:1px 5px;border-radius:4px;margin-left:6px;font-weight:600;">XMind</span>`;
+          iconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ea580c" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+          badgeHtml = `<span class="fp-file-badge" style="background:rgba(234,88,12,0.08);color:#c2410c;">XMind</span>`;
+        } else {
+          iconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
         }
 
         row.innerHTML = `
-          <span class="fp-file-icon">${icon}</span>
-          <span class="fp-file-name">${escapeHtml(entry.name)}${badgeTag}</span>
+          <span class="fp-file-icon-wrap">${iconSvg}</span>
+          <span class="fp-file-name">
+            <span>${escapeHtml(entry.name)}</span>
+            ${badgeHtml}
+          </span>
           <span class="fp-file-date">${formatDate(entry.modified)}</span>
-          <span class="fp-file-size">${entry.is_dir ? '目录' : formatSize(entry.size)}</span>
+          <span class="fp-file-size">${entry.is_dir ? '—' : formatSize(entry.size)}</span>
         `;
 
         row.onclick = (e) => {

@@ -26,7 +26,7 @@
         </div>
         <div class="sidebar-brand-text">
           <div class="app-title">YMind Pro</div>
-          <div class="app-tag">Studio v3.0 Ultra</div>
+          <div class="app-tag">Studio v3.0.0</div>
         </div>
       </div>
 
@@ -34,7 +34,7 @@
         <div class="home-nav-item action-nav-item btn-return-workspace" id="nav-btn-workspace" title="返回并继续编辑导图 (Esc)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v6m0 6v6M3 12h6m6 0h6"></path></svg>
           <span id="nav-workspace-title">返回导图界面</span>
-          <span class="workspace-live-dot" title="当前有活跃导图"></span>
+          <span class="workspace-live-dot all-saved" id="nav-workspace-live-dot" title="所有导图已保存"></span>
         </div>
 
         <div class="nav-divider"></div>
@@ -189,7 +189,7 @@
                 <span class="settings-main-label">GitHub 代码仓库源 (Release Source)</span>
                 <span class="settings-sub-label">版本更新检查目标 GitHub 仓库 (owner/repo)</span>
               </div>
-              <input type="text" id="setting-github-repo" class="apple-modal-input" style="width:220px;font-size:12px;padding:6px 12px;" value="lfw/ymind-tauri" placeholder="owner/repo" />
+              <input type="text" id="setting-github-repo" class="apple-modal-input" style="width:220px;font-size:12px;padding:6px 12px;" value="secure-artifacts/ymind-tauri" placeholder="owner/repo" />
             </div>
           </div>
 
@@ -337,15 +337,15 @@
         <div class="ymind-segmented-control">
           <button id="btn-mode-mindmap" class="seg-btn active-mode" title="思维导图视图 (Alt+1)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"></circle><path d="M12 3v6m0 6v6M3 12h6m6 0h6"></path></svg>
-            <span>导图</span>
+            <span class="seg-text">导图</span>
           </button>
           <button id="btn-mode-outliner" class="seg-btn" title="大纲文档视图 (Alt+2)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-            <span>大纲</span>
+            <span class="seg-text">大纲</span>
           </button>
           <button id="btn-mode-flashcards" class="seg-btn" title="3D 抽认卡复习工坊 (Alt+F)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="16" rx="3"></rect><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-            <span>抽认卡</span>
+            <span class="seg-text">抽认卡</span>
           </button>
         </div>
 
@@ -361,12 +361,12 @@
         <div class="ymind-action-dock" id="node-action-dock">
           <button id="btn-add-child" class="dock-btn primary-action" title="添加子主题 (Tab)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            <span>子主题</span>
+            <span class="dock-btn-text">子主题</span>
             <span class="dock-kbd">Tab</span>
           </button>
           <button id="btn-add-sibling" class="dock-btn" title="添加同级主题 (Enter)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 10 4 15 9 20"></polyline><path d="M20 4v7a4 4 0 0 1-4 4H4"></path></svg>
-            <span>同级</span>
+            <span class="dock-btn-text">同级</span>
             <span class="dock-kbd">↵</span>
           </button>
 
@@ -374,13 +374,13 @@
 
           <button id="btn-node-note" class="dock-btn" title="节点详细备注 (Alt+N)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-            <span>备注</span>
+            <span class="dock-btn-text">备注</span>
           </button>
 
           <div class="dropdown-wrapper">
             <button id="btn-node-attributes" class="dock-btn" title="设置图标、优先级、进度与标签">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path></svg>
-              <span>属性</span>
+              <span class="dock-btn-text">属性</span>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:-2px;color:var(--text-tertiary)"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
             <div class="apple-popover node-attr-popover" id="menu-node-attributes">
@@ -438,17 +438,17 @@
       <div class="top-bar-right">
         <button id="btn-export-snap" class="dock-capsule-btn" title="导出 CodeSnap 风格精美快照 (Alt+P)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
-          <span>快照</span>
+          <span class="capsule-btn-text">快照</span>
         </button>
 
         <button id="btn-active-recall" class="dock-capsule-btn" title="切换记忆掩码测试模式 (Alt+R)">
           <span style="font-size:11px;">🎭</span>
-          <span>遮罩</span>
+          <span class="capsule-btn-text">遮罩</span>
         </button>
 
         <button id="btn-toggle-security" class="dock-capsule-btn" title="AES-256 安全加密保险箱 (Alt+L)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          <span id="txt-security-status">加密</span>
+          <span id="txt-security-status" class="capsule-btn-text">加密</span>
         </button>
 
         <div class="top-bar-divider"></div>
@@ -471,7 +471,7 @@
 
         <button id="btn-toggle-format" class="ymind-format-toggle active" title="展开/收起格式检查器">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg>
-          <span>格式</span>
+          <span class="toggle-btn-text">格式</span>
         </button>
       </div>
     </header>
@@ -529,6 +529,76 @@
         </div>
 
         <div class="inspector-content-scroll">
+          <!-- 1. 🎯 节点操作与任务 -->
+          <div class="inspector-accordion-item open" data-section="node-task">
+            <div class="inspector-accordion-header">
+              <div class="accordion-header-left"><span>🎯 节点操作与任务</span></div>
+              <div class="accordion-header-right">
+                <span id="badge-node-status" class="accordion-status-pill">常规节点</span>
+                <svg class="accordion-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
+            <div class="inspector-accordion-body" id="inspector-node-task-body">
+              <div class="line-group-subtitle">任务排期与状态</div>
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>☑️ 待办模式</span></div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <label class="apple-switch" title="开启/关闭待办模式">
+                    <input type="checkbox" id="sidebar-task-toggle" />
+                    <span class="apple-switch-slider"></span>
+                  </label>
+                  <label id="sidebar-done-wrap" class="sidebar-sub-check hidden" style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--text-secondary);cursor:pointer;">
+                    <input type="checkbox" id="sidebar-task-done" />
+                    <span>已完成</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>📅 截止日期</span></div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span id="sidebar-due-text" class="sidebar-val-pill">未设置</span>
+                  <button id="sidebar-btn-edit-due" class="btn-sidebar-action" type="button">设置</button>
+                </div>
+              </div>
+
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>⏱️ 预估耗时</span></div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span id="sidebar-dur-text" class="sidebar-val-pill">未设置</span>
+                  <button id="sidebar-btn-edit-dur" class="btn-sidebar-action" type="button">设置</button>
+                </div>
+              </div>
+
+              <div class="line-group-subtitle" style="margin-top:6px;">连接与引用</div>
+              <div class="sidebar-prop-row" style="align-items:flex-start;">
+                <div class="sidebar-prop-label" style="margin-top:3px;"><span>🔗 节点链接</span></div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:1;min-width:0;">
+                  <span id="sidebar-link-text" class="sidebar-val-pill link-val" title="暂无链接">无链接</span>
+                  <div style="display:flex;gap:4px;">
+                    <button id="sidebar-btn-open-link" class="btn-sidebar-action hidden" type="button">打开</button>
+                    <button id="sidebar-btn-edit-link" class="btn-sidebar-action" type="button">配置</button>
+                  </div>
+                </div>
+              </div>
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>📋 深度链接</span></div>
+                <button id="sidebar-btn-copy-deep" class="btn-sidebar-action" type="button" style="width:100%;justify-content:center;">复制专属链接</button>
+              </div>
+
+              <div class="line-group-subtitle" style="margin-top:6px;">分支动作与管理</div>
+              <div class="sidebar-action-grid">
+                <button id="sidebar-btn-focus" class="sidebar-grid-btn" type="button"><span class="btn-icon">🔭</span><span id="sidebar-txt-focus">专注分支</span></button>
+                <button id="sidebar-btn-collapse" class="sidebar-grid-btn" type="button"><span class="btn-icon">📁</span><span id="sidebar-txt-collapse">展开/折叠</span></button>
+                <button id="sidebar-btn-snapshot" class="sidebar-grid-btn" type="button"><span class="btn-icon">📸</span><span>导出快照</span></button>
+                <button id="sidebar-btn-copy" class="sidebar-grid-btn" type="button"><span class="btn-icon">📋</span><span>复制分支</span></button>
+                <button id="sidebar-btn-cut" class="sidebar-grid-btn" type="button"><span class="btn-icon">✂️</span><span>剪切分支</span></button>
+                <button id="sidebar-btn-delete" class="sidebar-grid-btn danger" type="button"><span class="btn-icon">🗑️</span><span>删除节点</span></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 🌟 节点图标库 (200+) -->
           <div class="inspector-accordion-item" data-section="icons">
             <div class="inspector-accordion-header">
               <div class="accordion-header-left"><span>🌟 节点图标库 (200+)</span></div>
@@ -543,17 +613,18 @@
             </div>
           </div>
 
-          <!-- 🌟 全面强化：文字样式支持 字号、粗细、斜体、删除线与颜色 -->
+          <!-- 3. 🔤 文字排版与样式 -->
           <div class="inspector-accordion-item open" data-section="typography">
             <div class="inspector-accordion-header">
-              <div class="accordion-header-left"><span>🔤 节点文字样式</span></div>
+              <div class="accordion-header-left"><span>🔤 文字排版与样式</span></div>
               <div class="accordion-header-right"><svg class="accordion-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg></div>
             </div>
             <div class="inspector-accordion-body">
               <div class="line-group-subtitle">字号大小</div>
               <div class="segmented-style-row" id="node-font-size-options">
+                <button class="style-btn active" data-size="default" title="恢复层级默认字阶">默认</button>
                 <button class="style-btn" data-size="12">12px</button>
-                <button class="style-btn active" data-size="14">14px</button>
+                <button class="style-btn" data-size="14">14px</button>
                 <button class="style-btn" data-size="18">18px</button>
                 <button class="style-btn" data-size="22">22px</button>
               </div>
@@ -578,6 +649,7 @@
             </div>
           </div>
 
+          <!-- 4. 📐 导图骨架结构 -->
           <div class="inspector-accordion-item open" data-section="structure">
             <div class="inspector-accordion-header">
               <div class="accordion-header-left"><span>📐 导图骨架结构</span></div>
@@ -593,6 +665,7 @@
             </div>
           </div>
 
+          <!-- 5. 🎨 整体配色方案 -->
           <div class="inspector-accordion-item" data-section="palette">
             <div class="inspector-accordion-header">
               <div class="accordion-header-left"><span>🎨 整体配色方案 (20 款)</span></div>
@@ -610,6 +683,7 @@
             </div>
           </div>
 
+          <!-- 6. 〰️ 连线与边框形态 -->
           <div class="inspector-accordion-item" data-section="lines">
             <div class="inspector-accordion-header">
               <div class="accordion-header-left"><span>〰️ 连线与边框形态</span></div>
@@ -635,6 +709,7 @@
             </div>
           </div>
 
+          <!-- 7. 🖼 画布底色与底纹 -->
           <div class="inspector-accordion-item" data-section="canvas">
             <div class="inspector-accordion-header">
               <div class="accordion-header-left"><span>🖼 画布底色与底纹</span></div>
@@ -798,7 +873,7 @@
             <div id="card-front-path" class="card-crumb-path">路径引导</div>
             <div id="card-front-title" class="card-main-question">正面提问</div>
             <div id="card-front-hint" class="card-sub-hint">提示内容</div>
-            <div class="card-flip-prompt">按空格键 [Space] 或点击翻转查看要点</div>
+            <div class="card-flip-prompt">点击卡片或按空格键翻转查看要点</div>
           </div>
           <div class="flashcard-face flashcard-back">
             <div id="card-back-title" class="card-back-question">背面答案</div>
@@ -813,9 +888,9 @@
           <button id="btn-card-next" class="card-nav-btn">下一张 →</button>
         </div>
         <div class="flashcards-rating-dock">
-          <button id="btn-rate-forgot" class="rate-pill forgot">[1] 遗忘重来</button>
-          <button id="btn-rate-review" class="rate-pill review">[2] 模糊待巩固</button>
-          <button id="btn-rate-mastered" class="rate-pill mastered">[3] 熟练掌握</button>
+          <button id="btn-rate-forgot" class="rate-pill forgot">1 遗忘重来</button>
+          <button id="btn-rate-review" class="rate-pill review">2 模糊待巩固</button>
+          <button id="btn-rate-mastered" class="rate-pill mastered">3 熟练掌握</button>
         </div>
         <button id="btn-flip-card" class="card-flip-action-btn">翻转卡片</button>
       </div>
@@ -877,6 +952,7 @@
     <div class="popover-separator"></div>
     <div class="popover-item context-menu-item" data-action="toggle-todo">☑️ 待办模式切换 (Alt+X)</div>
     <div class="popover-item context-menu-item" data-action="edit-due-date">📅 设置截止日期...</div>
+    <div class="popover-item context-menu-item" data-action="edit-duration">⏱️ 设置任务耗时...</div>
     <div class="popover-item context-menu-item" data-action="edit-link">🔗 设置/编辑链接...</div>
     <div class="popover-item context-menu-item" data-action="copy-deep-link">📋 复制节点深度链接</div>
     <div class="popover-item context-menu-item" data-action="export-snap">📸 导出精美快照...</div>

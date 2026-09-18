@@ -1,4 +1,3 @@
-#svg-infinite-bg { fill: transparent !important; }
 #viewport {
   background-color: var(--canvas-bg, #f8fafc) !important;
   /* transition: background-color removed for instant response */

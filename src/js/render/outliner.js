@@ -1,3 +1,4 @@
+import { getDurationBadgeStyle, promptEditDuration } from "../ui/task-duration.js";
 import { state, findParent, findNode, getActiveDocumentContext } from "../core/state.js";
 import { executeCommand, executeCompoundCommand, COMMANDS } from "../core/history.js";
 import { PRIORITY_COLORS } from "../data/palettes.js";
@@ -24,11 +25,12 @@ export function renderOutliner(docCtxOrRenderApp, maybeRenderApp) {
     outlinerPanel._vOutlinerBound = true;
   }
 
-  const root = ctx.mindData;
-  if (!root) return;
+  const isFocused = Boolean(ctx.focusedRootId && ctx.focusedRootId !== (ctx.mindData?.id || "root"));
+  const currentRoot = (isFocused && findNode(ctx.focusedRootId, ctx.mindData)) || ctx.mindData;
+  if (!currentRoot) return;
 
-  renderOutlinerRootHeader(outlinerContent, ctx);
-  const visibleItems = collectVisibleNodes(root);
+  renderOutlinerRootHeader(outlinerContent, ctx, currentRoot);
+  const visibleItems = collectVisibleNodes(currentRoot);
   renderOutlinerListFlow(outlinerContent, visibleItems, ctx, outlinerPanel);
 
   if (pendingFocusNodeId) {
@@ -64,33 +66,33 @@ function collectVisibleNodes(root) {
   return list;
 }
 
-function renderOutlinerRootHeader(content, ctx) {
+function renderOutlinerRootHeader(content, ctx, currentRoot) {
   let rootHeader = content.querySelector(".outliner-root-wrapper");
   if (!rootHeader) {
     rootHeader = document.createElement("div");
     rootHeader.className = "outliner-root-wrapper";
     rootHeader.innerHTML = `<div class="outliner-title-input" contenteditable="true" spellcheck="false"></div>`;
     content.prepend(rootHeader);
+  }
 
-    const titleInput = rootHeader.querySelector(".outliner-title-input");
+  const titleInput = rootHeader.querySelector(".outliner-title-input");
+  if (titleInput) {
     titleInput.onblur = () => {
       if (isComposingIME) return;
       const val = titleInput.innerText.trim();
-      const currentRoot = ctx?.mindData;
-      if (val && currentRoot && val !== currentRoot.text) {
+      const target = currentRoot || ctx?.mindData;
+      if (val && target && val !== target.text) {
         ctx.executeCommand({
           type: COMMANDS.SET_TEXT,
-          nodeId: currentRoot.id,
-          oldText: currentRoot.text,
+          nodeId: target.id,
+          oldText: target.text,
           newText: val
         });
       }
     };
-  }
-
-  const titleInput = rootHeader.querySelector(".outliner-title-input");
-  if (titleInput && document.activeElement !== titleInput && !isComposingIME) {
-    titleInput.innerText = ctx?.mindData?.text || "中心主题";
+    if (document.activeElement !== titleInput && !isComposingIME) {
+      titleInput.innerText = currentRoot?.text || ctx?.mindData?.text || "中心主题";
+    }
   }
 }
 
@@ -318,6 +320,23 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
         badges.appendChild(dueSpan);
       }
     }
+    if (node.duration) {
+      const durStyle = getDurationBadgeStyle(node.duration, Boolean(node.done), false);
+      if (durStyle) {
+        const durSpan = document.createElement("span");
+        durSpan.className = "apple-tag";
+        durSpan.style.background = durStyle.bg;
+        durSpan.style.color = durStyle.color;
+        durSpan.style.border = `1px solid ${durStyle.border}`;
+        durSpan.style.cursor = "pointer";
+        durSpan.innerText = durStyle.label;
+        durSpan.onclick = (e) => {
+          e.stopPropagation();
+          promptEditDuration(node);
+        };
+        badges.appendChild(durSpan);
+      }
+    }
 
     if (node.progress !== undefined && node.progress !== null && node.progress !== "") {
       const prg = document.createElement("span");
@@ -447,7 +466,8 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
 
       if (e.key === "Tab" && e.shiftKey) {
         e.preventDefault();
-        if (ctx && parentNode.id !== ctx.mindData.id) {
+        const curFocusRoot = (ctx.focusedRootId && findNode(ctx.focusedRootId, ctx.mindData)) || ctx.mindData;
+        if (ctx && parentNode.id !== curFocusRoot.id) {
           const grandParent = findParent(parentNode.id, ctx.mindData);
           if (grandParent) {
             const pIdx = grandParent.children.findIndex(c => c.id === parentNode.id);

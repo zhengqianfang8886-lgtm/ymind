@@ -24,10 +24,7 @@ export function getNodeEditorMetrics(node, s, customCtx = null, currentText = nu
   const limitWorldW = isRoot ? MAX_ROOT_TEXT_WIDTH : MAX_NODE_TEXT_WIDTH;
   const maxScreenW = Math.ceil(limitWorldW * s);
 
-  const placeholderText = node.text || "新分支";
-  const textVal = (currentText !== null && currentText !== undefined && currentText !== "")
-    ? currentText
-    : placeholderText;
+  const textVal = currentText !== null ? currentText : (node.text || "");
   const lines = String(textVal).split(/\r?\n/);
   let maxLW = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -35,10 +32,8 @@ export function getNodeEditorMetrics(node, s, customCtx = null, currentText = nu
     if (lw > maxLW) maxLW = lw;
   }
 
-  const placeholderW = measureTextWidth(placeholderText, geo.typography.fontSize, geo.typography.fontWeight, geo.typography.fontStyle, false) * s;
-  const baseMinW = Math.max(72, Math.ceil(placeholderW + 24));
-  const dynamicW = Math.min(maxScreenW, Math.max(baseMinW, Math.ceil(maxLW + 24)));
-  const editorWidth = Math.min(maxScreenW, Math.max(baseMinW, dynamicW));
+  const dynamicW = Math.min(maxScreenW, Math.ceil(maxLW + 22));
+  const editorWidth = Math.min(maxScreenW, Math.max(56, dynamicW));
 
   return {
     screenX: Math.round(geo.screen.x - 7),
@@ -122,8 +117,7 @@ export function startNodeEdit(node, stateRef, onRender, isNewNode = false, custo
     const currentScale = camera.transform.scale;
     const maxScreenW = Math.ceil(maxAllowedWorldW * currentScale);
 
-    const placeholderText = inlineEditor.placeholder || node.text || "新分支";
-    const curVal = inlineEditor.value || placeholderText;
+    const curVal = inlineEditor.value || "";
     const lines = curVal.split(/\r?\n/);
     let maxLW = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -131,10 +125,8 @@ export function startNodeEdit(node, stateRef, onRender, isNewNode = false, custo
       if (lw > maxLW) maxLW = lw;
     }
 
-    const placeholderW = measureTextWidth(placeholderText, geo.typography.fontSize, geo.typography.fontWeight, geo.typography.fontStyle, false) * currentScale;
-    const baseMinW = Math.max(72, Math.ceil(placeholderW + 24));
-    const dynamicScreenW = Math.ceil(maxLW + 24);
-    const finalW = Math.min(maxScreenW, Math.max(baseMinW, dynamicScreenW));
+    const dynamicScreenW = Math.ceil(maxLW + 22);
+    const finalW = Math.min(maxScreenW, Math.max(56, dynamicScreenW));
 
     const screenX = Math.round(lockedWorldLeft * currentScale + camera.transform.x - 7);
     const screenY = Math.round(lockedWorldTop * currentScale + camera.transform.y - 3.5);

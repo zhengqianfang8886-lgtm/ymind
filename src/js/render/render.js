@@ -6,6 +6,7 @@ import { updateMinimap, syncMinimapViewportBox } from "./minimap.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
 import { startNodeEdit, syncInlineEditorPosition, getNodeEditorMetrics } from "../ui/inline-editor.js";
 import { drawNodeContent } from "./node-drawer.js";
+import { isDarkCanvasTheme } from "../data/palettes.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 import { nodeAnimator } from "./node-animator.js";
 
@@ -351,7 +352,7 @@ export function render(docCtxOrState, callbacks) {
 
     const boxStyle = docCtx.boxStyle || "squircle";
     const isGlobalDark = document.documentElement.getAttribute("data-theme") === "dark";
-    const isDarkCanvas = isGlobalDark || ["space-gray", "midnight-abyss", "prussian-navy", "slate-chalkboard", "cyber-violet", "obsidian-coffee"].includes(docCtx.canvasBgColor);
+    const isDarkCanvas = isGlobalDark || isDarkCanvasTheme(docCtx.canvasBgColor);
     const enableShadows = !state.isInteracting && visibleNodes.length < 1500 && s >= 0.35;
 
     // 2. 节点背景与选框绘制 (单体闭环，绝无矩阵叠乘)
@@ -424,9 +425,11 @@ export function render(docCtxOrState, callbacks) {
 
           ctx.shadowColor = "transparent";
           ctx.shadowBlur = 0;
-          ctx.strokeStyle = node.colorTheme ? node.colorTheme.border : (isDarkCanvas ? "rgba(255, 255, 255, 0.25)" : "rgba(0, 0, 0, 0.18)");
-          ctx.lineWidth = nodeBorderWidth;
-          ctx.stroke();
+          if (state.editingNodeId !== node.id) {
+            ctx.strokeStyle = node.colorTheme ? node.colorTheme.border : (isDarkCanvas ? "rgba(255, 255, 255, 0.25)" : "rgba(0, 0, 0, 0.18)");
+            ctx.lineWidth = nodeBorderWidth;
+            ctx.stroke();
+          }
         }
       } else {
         ctx.beginPath();
@@ -436,10 +439,12 @@ export function render(docCtxOrState, callbacks) {
         ctx.strokeStyle = isSelected ? (isDarkCanvas ? "#38bdf8" : "#0071e3") : defaultColor;
         const defaultUnderlineWidth = isRootOfView ? (2.8 / s) : (2.2 / s);
         ctx.lineWidth = isSelected ? (3.4 / s) : defaultUnderlineWidth;
-        ctx.stroke();
+        if (state.editingNodeId !== node.id) {
+          ctx.stroke();
+        }
       }
 
-      if (isSelected) {
+      if (isSelected && state.editingNodeId !== node.id) {
         const offset = 2.5;
         if (boxStyle === "underline") {
           const padX = 4, padY = 3;
@@ -504,6 +509,10 @@ export function render(docCtxOrState, callbacks) {
 
   
 
+    // 🌟 绘制平滑吸入收拢的分支动效
+    if (typeof nodeAnimator?.drawCollapsingNodes === "function") {
+      nodeAnimator.drawCollapsingNodes(ctx, docCtx, s);
+    }
   } finally {
     ctx.restore();
   }

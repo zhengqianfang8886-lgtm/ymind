@@ -1,25 +1,48 @@
+import { toggleNodeTodo, toggleTaskDone } from "./todo.js";
+import { promptEditDueDate } from "./due-date.js";
+import { promptEditDuration } from "./task-duration.js";
+import { promptEditNodeLink, navigateDeepLink, copyNodeDeepLink } from "./deep-link.js";
+import { copySelectedNodes, cutSelectedNodes, deleteSelectedNodes } from "../interaction/node-actions.js";
+import { openSnapshotModal } from "./snapshot.js";
 import { resizeCanvas } from "../render/render.js";
 import { getActiveTab, getPrimarySelectedNode, findNode, state, getActiveDocumentContext } from "../core/state.js";
 import { executeCommand, executeCompoundCommand, COMMANDS } from "../core/history.js";
-import { invalidateFontCache } from "../geometry/layout.js";
+import { invalidateFontCache, getEffectiveNodeTypography } from "../geometry/layout.js";
 import { COLOR_PALETTES, BG_COLOR_MAP } from "../data/palettes.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 import { smartAdaptiveCenter } from "../core/camera.js";
 
-function applyNodeStyle(updateFn, attrKeys = ['fontSize', 'fontWeight', 'fontStyle', 'textDecoration', 'textColor']) {
+function collectAllNodeIds(root) {
+  const ids = [];
+  function walk(n) {
+    if (!n) return;
+    ids.push(n.id);
+    if (n.children) n.children.forEach(walk);
+  }
+  walk(root);
+  return ids;
+}
+
+function applyNodeStyle(updateFn, attrKeys = ['fontSize', 'fontWeight', 'fontStyle', 'textDecoration', 'textColor'], applyAll = false) {
   const docCtx = getActiveDocumentContext();
   if (!docCtx || !docCtx.mindData) return;
 
-  const targetIds = (docCtx.selectedIds && docCtx.selectedIds.size > 0)
-    ? Array.from(docCtx.selectedIds)
-    : [docCtx.primarySelectedNode?.id || docCtx.focusedRootId || docCtx.mindData.id].filter(Boolean);
+  let targetIds = [];
+  if (applyAll || !docCtx.selectedIds || docCtx.selectedIds.size === 0) {
+    // 未选择节点时作用于整棵导图所有节点，确保侧边栏时刻全权受控
+    targetIds = collectAllNodeIds(docCtx.mindData);
+  } else {
+    targetIds = Array.from(docCtx.selectedIds);
+  }
+
+  if (targetIds.length === 0) return;
 
   docCtx.batchUpdateAttrs(targetIds, (node) => {
     updateFn(node);
     const patches = {};
     attrKeys.forEach(k => { patches[k] = node[k]; });
     return patches;
-  }, false);
+  }, true);
 
   invalidateFontCache();
   docCtx.isLayoutDirty = true;
@@ -57,46 +80,43 @@ export function syncInspectorUi() {
     if (palObj) badgePalette.innerText = palObj.name.replace(/^[^\w\u4e00-\u9fa5]+/, "").trim();
   }
 
-  const primaryNode = getPrimarySelectedNode();
+  const docCtx = getActiveDocumentContext();
+  const primaryNode = getPrimarySelectedNode() || docCtx?.mindData;
+  const isTargetRoot = Boolean(primaryNode && primaryNode.id === (tab.focusedRootId || tab.mindData?.id));
+  const typo = getEffectiveNodeTypography(primaryNode, isTargetRoot ? 0 : 2, tab.focusedRootId || "root", docCtx);
+
   const btnBold = document.getElementById("btn-text-bold");
   const btnItalic = document.getElementById("btn-text-italic");
   const btnStrike = document.getElementById("btn-text-strike");
 
-  if (!primaryNode) {
-    document.querySelectorAll("#node-font-size-options .style-btn").forEach(b => b.classList.remove("active"));
-    btnBold?.classList.remove("active");
-    btnItalic?.classList.remove("active");
-    btnStrike?.classList.remove("active");
-    document.querySelectorAll("#node-text-color-options .bg-color-swatch").forEach(c => c.classList.remove("active"));
-  } else {
-    const isRoot = primaryNode.id === (tab.focusedRootId || tab.mindData?.id);
-    const curSize = primaryNode.fontSize ? String(parseInt(primaryNode.fontSize, 10)) : (isRoot ? "16" : "14");
+  // 严格依据当前有效计算状态（typo）反显
+  const isBold = typo.fontWeight === "700" || typo.fontWeight === "bold";
+  btnBold?.classList.toggle("active", Boolean(isBold));
+  btnItalic?.classList.toggle("active", typo.fontStyle === "italic");
+  btnStrike?.classList.toggle("active", typo.textDecoration === "line-through");
 
-    // 粗体反显
-    const isBold = primaryNode.fontWeight === "700" || primaryNode.fontWeight === "bold" || (isRoot && !primaryNode.fontWeight);
-    btnBold?.classList.toggle("active", Boolean(isBold));
+  // 字阶反显：未自定义字号时激活“默认”
+  const curCustomSize = primaryNode?.fontSize ? parseInt(primaryNode.fontSize, 10) : null;
+  document.querySelectorAll("#node-font-size-options .style-btn").forEach(b => {
+    const sizeVal = b.dataset.size;
+    if (sizeVal === "default") {
+      b.classList.toggle("active", curCustomSize === null);
+    } else {
+      b.classList.toggle("active", curCustomSize !== null && curCustomSize === parseInt(sizeVal, 10));
+    }
+  });
 
-    // 斜体反显
-    const isItalic = primaryNode.fontStyle === "italic";
-    btnItalic?.classList.toggle("active", Boolean(isItalic));
-
-    // 删除线反显
-    const isStrike = primaryNode.textDecoration === "line-through";
-    btnStrike?.classList.toggle("active", Boolean(isStrike));
-
-    const curColor = primaryNode.textColor || "default";
-
-    document.querySelectorAll("#node-font-size-options .style-btn").forEach(b => {
-      b.classList.toggle("active", b.dataset.size === curSize || (curSize === "16" && b.dataset.size === "14") || (curSize === "13.5" && b.dataset.size === "14"));
-    });
-
-    document.querySelectorAll("#node-text-color-options .bg-color-swatch").forEach(c => {
-      c.classList.toggle("active", c.dataset.color === curColor);
-    });
-  }
+  const curColor = primaryNode?.textColor || "default";
+  document.querySelectorAll("#node-text-color-options .bg-color-swatch").forEach(c => {
+    c.classList.toggle("active", c.dataset.color === curColor);
+  });
 
   applyCanvasThemeToBody(currentColor, currentPattern);
+  syncSidebarNodeTaskCard(primaryNode, tab, docCtx);
 }
+
+
+
 
 export function applyCanvasThemeToBody(bgColor = "studio-white", bgPattern = "dots") {
   const vp = document.getElementById("viewport");
@@ -160,39 +180,58 @@ export function initInspectorEvents() {
       if (item.classList.contains("open")) {
         if (item.dataset.section === "palette") {
           renderPaletteGrid();
+  bindSidebarNodeTaskEvents();
+
           syncInspectorUi();
         }
       }
     };
   });
 
-  // 字号切换
+  // 字号切换（支持重置为层级默认）
   document.querySelectorAll("#node-font-size-options .style-btn").forEach(btn => {
     btn.onclick = (e) => {
       e.stopPropagation();
-      applyNodeStyle(node => { node.fontSize = btn.dataset.size; });
+      const val = btn.dataset.size === "default" ? null : btn.dataset.size;
+      applyNodeStyle(node => { node.fontSize = val; }, ['fontSize']);
     };
   });
 
-  const decorConfigs = [
-    ["btn-text-bold", "fontWeight", ["700", "bold"], "400", "700"],
-    ["btn-text-italic", "fontStyle", ["italic"], "normal", "italic"],
-    ["btn-text-strike", "textDecoration", ["line-through"], "none", "line-through"]
-  ];
-  decorConfigs.forEach(([btnId, prop, activeMatches, offVal, onVal]) => {
-    document.getElementById(btnId)?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const primary = getPrimarySelectedNode();
-      const isActive = activeMatches.includes(primary?.[prop]);
-      applyNodeStyle(node => { node[prop] = isActive ? offVal : onVal; });
-    });
+  // 粗体点击：基于有效状态反转
+  document.getElementById("btn-text-bold")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const docCtx = getActiveDocumentContext();
+    const primary = getPrimarySelectedNode() || docCtx?.mindData;
+    const typo = getEffectiveNodeTypography(primary, 0, docCtx?.focusedRootId, docCtx);
+    const isCurrentlyBold = typo.fontWeight === "700" || typo.fontWeight === "bold";
+    applyNodeStyle(node => { node.fontWeight = isCurrentlyBold ? "400" : "700"; }, ['fontWeight']);
+  });
+
+  // 斜体点击：基于有效状态反转
+  document.getElementById("btn-text-italic")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const docCtx = getActiveDocumentContext();
+    const primary = getPrimarySelectedNode() || docCtx?.mindData;
+    const typo = getEffectiveNodeTypography(primary, 0, docCtx?.focusedRootId, docCtx);
+    const isCurrentlyItalic = typo.fontStyle === "italic";
+    applyNodeStyle(node => { node.fontStyle = isCurrentlyItalic ? "normal" : "italic"; }, ['fontStyle']);
+  });
+
+  // 删除线点击：基于有效状态反转
+  document.getElementById("btn-text-strike")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const docCtx = getActiveDocumentContext();
+    const primary = getPrimarySelectedNode() || docCtx?.mindData;
+    const typo = getEffectiveNodeTypography(primary, 0, docCtx?.focusedRootId, docCtx);
+    const isCurrentlyStrike = typo.textDecoration === "line-through";
+    applyNodeStyle(node => { node.textDecoration = isCurrentlyStrike ? "none" : "line-through"; }, ['textDecoration']);
   });
 
   // 颜色切换
   document.querySelectorAll("#node-text-color-options .bg-color-swatch").forEach(swatch => {
     swatch.onclick = (e) => {
       e.stopPropagation();
-      applyNodeStyle(node => { node.textColor = swatch.dataset.color; });
+      applyNodeStyle(node => { node.textColor = swatch.dataset.color; }, ['textColor']);
     };
   });
 
@@ -265,4 +304,230 @@ export function initInspectorEvents() {
       };
     });
   });
+}
+
+
+
+
+export function bindSidebarNodeTaskEvents() {
+  const toggleTask = document.getElementById("sidebar-task-toggle");
+  if (toggleTask && !toggleTask._bound) {
+    toggleTask.onchange = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary) toggleNodeTodo(primary);
+    };
+    toggleTask._bound = true;
+  }
+
+  const checkDone = document.getElementById("sidebar-task-done");
+  if (checkDone && !checkDone._bound) {
+    checkDone.onchange = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary && primary.todo) toggleTaskDone(primary);
+    };
+    checkDone._bound = true;
+  }
+
+  const btnEditDue = document.getElementById("sidebar-btn-edit-due");
+  if (btnEditDue && !btnEditDue._bound) {
+    btnEditDue.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary) promptEditDueDate(primary);
+    };
+    btnEditDue._bound = true;
+  }
+
+  const btnEditDur = document.getElementById("sidebar-btn-edit-dur");
+  if (btnEditDur && !btnEditDur._bound) {
+    btnEditDur.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary) promptEditDuration(primary);
+    };
+    btnEditDur._bound = true;
+  }
+
+  const btnEditLink = document.getElementById("sidebar-btn-edit-link");
+  if (btnEditLink && !btnEditLink._bound) {
+    btnEditLink.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary) promptEditNodeLink(primary);
+    };
+    btnEditLink._bound = true;
+  }
+
+  const btnOpenLink = document.getElementById("sidebar-btn-open-link");
+  if (btnOpenLink && !btnOpenLink._bound) {
+    btnOpenLink.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary && primary.link) navigateDeepLink(primary.link);
+    };
+    btnOpenLink._bound = true;
+  }
+
+  const btnCopyDeep = document.getElementById("sidebar-btn-copy-deep");
+  if (btnCopyDeep && !btnCopyDeep._bound) {
+    btnCopyDeep.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary) copyNodeDeepLink(primary);
+    };
+    btnCopyDeep._bound = true;
+  }
+
+  const btnFocus = document.getElementById("sidebar-btn-focus");
+  if (btnFocus && !btnFocus._bound) {
+    btnFocus.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary && docCtx) {
+        const rootId = docCtx.mindData?.id || "root";
+        const nextId = (docCtx.focusedRootId === primary.id) ? rootId : primary.id;
+        docCtx.focusBranch(nextId);
+        docCtx.isLayoutDirty = true;
+        bus.emit(EVENTS.RENDER_APP);
+        smartAdaptiveCenter(null, true, docCtx);
+      }
+    };
+    btnFocus._bound = true;
+  }
+
+  const btnCollapse = document.getElementById("sidebar-btn-collapse");
+  if (btnCollapse && !btnCollapse._bound) {
+    btnCollapse.onclick = async (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      if (primary && primary.children && primary.children.length > 0) {
+        const nextCollapsed = !primary.collapsed;
+        const { nodeAnimator } = await import("../render/node-animator.js");
+        if (nextCollapsed) nodeAnimator.collapseBranch(primary);
+        else nodeAnimator.prepareExpand(primary);
+        docCtx.executeCommand({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: primary.id,
+          oldAttrs: { collapsed: Boolean(primary.collapsed) },
+          newAttrs: { collapsed: nextCollapsed }
+        });
+        docCtx.markLayoutDirty(primary.id);
+        bus.emit(EVENTS.RENDER_APP);
+      }
+    };
+    btnCollapse._bound = true;
+  }
+
+  const btnSnap = document.getElementById("sidebar-btn-snapshot");
+  if (btnSnap && !btnSnap._bound) {
+    btnSnap.onclick = (e) => {
+      e.stopPropagation();
+      const docCtx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || docCtx?.mindData;
+      openSnapshotModal(primary);
+    };
+    btnSnap._bound = true;
+  }
+
+  const btnCopy = document.getElementById("sidebar-btn-copy");
+  if (btnCopy && !btnCopy._bound) {
+    btnCopy.onclick = (e) => {
+      e.stopPropagation();
+      copySelectedNodes();
+    };
+    btnCopy._bound = true;
+  }
+
+  const btnCut = document.getElementById("sidebar-btn-cut");
+  if (btnCut && !btnCut._bound) {
+    btnCut.onclick = (e) => {
+      e.stopPropagation();
+      cutSelectedNodes();
+    };
+    btnCut._bound = true;
+  }
+
+  const btnDel = document.getElementById("sidebar-btn-delete");
+  if (btnDel && !btnDel._bound) {
+    btnDel.onclick = (e) => {
+      e.stopPropagation();
+      deleteSelectedNodes();
+    };
+    btnDel._bound = true;
+  }
+}
+
+export function syncSidebarNodeTaskCard(node, tab, docCtx) {
+  bindSidebarNodeTaskEvents();
+
+  const badgeStatus = document.getElementById("badge-node-status");
+  const toggleTask = document.getElementById("sidebar-task-toggle");
+  const doneWrap = document.getElementById("sidebar-done-wrap");
+  const checkDone = document.getElementById("sidebar-task-done");
+  const dueText = document.getElementById("sidebar-due-text");
+  const durText = document.getElementById("sidebar-dur-text");
+  const linkText = document.getElementById("sidebar-link-text");
+  const btnOpenLink = document.getElementById("sidebar-btn-open-link");
+  const txtFocus = document.getElementById("sidebar-txt-focus");
+  const txtCollapse = document.getElementById("sidebar-txt-collapse");
+
+  if (!node) {
+    if (badgeStatus) badgeStatus.innerText = "未选节点";
+    return;
+  }
+
+  const isRoot = Boolean(node.id === (tab?.focusedRootId || tab?.mindData?.id));
+  if (badgeStatus) {
+    if (isRoot) badgeStatus.innerText = "根节点";
+    else if (node.todo && node.done) badgeStatus.innerText = "已完成";
+    else if (node.todo) badgeStatus.innerText = "待办任务";
+    else badgeStatus.innerText = "常规节点";
+  }
+
+  if (toggleTask) toggleTask.checked = Boolean(node.todo);
+  if (doneWrap) {
+    doneWrap.classList.toggle("hidden", !node.todo);
+    doneWrap.style.display = node.todo ? "inline-flex" : "none";
+  }
+  if (checkDone) checkDone.checked = Boolean(node.done);
+
+  if (dueText) {
+    dueText.innerText = node.dueDate || "未设置";
+    dueText.classList.toggle("active", Boolean(node.dueDate));
+  }
+
+  if (durText) {
+    durText.innerText = node.duration || "未设置";
+    durText.classList.toggle("active", Boolean(node.duration));
+  }
+
+  if (linkText) {
+    linkText.innerText = node.link || "无链接";
+    linkText.title = node.link || "暂无链接";
+    linkText.classList.toggle("active", Boolean(node.link));
+  }
+  if (btnOpenLink) {
+    btnOpenLink.classList.toggle("hidden", !node.link);
+    btnOpenLink.style.display = node.link ? "inline-flex" : "none";
+  }
+
+  if (txtFocus) {
+    const isFocused = docCtx && docCtx.focusedRootId === node.id && node.id !== (docCtx.mindData?.id || "root");
+    txtFocus.innerText = isFocused ? "退出专注" : "专注分支";
+  }
+
+  if (txtCollapse) {
+    txtCollapse.innerText = node.collapsed ? "展开分支" : "折叠分支";
+  }
 }

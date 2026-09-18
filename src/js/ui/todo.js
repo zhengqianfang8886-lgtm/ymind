@@ -87,7 +87,15 @@ export function toggleTaskDone(node) {
 
   docCtx.markLayoutDirty(node.id);
   bus.emit(EVENTS.RENDER_APP);
-  showToast(nextDone ? "✅ 任务已达成" : "⚪ 标记为待办中");
+  if (nextDone) {
+    if (node.duration) {
+      showToast(`✅ 任务已达成 · 耗时 ${node.duration}`);
+    } else {
+      showToast("✅ 任务已达成");
+    }
+  } else {
+    showToast("⚪ 标记为待办中");
+  }
 }
 
 /**

@@ -147,11 +147,9 @@ export async function clearAllRecentDocs(renderHome) {
   }
 
   const starredDocs = recents.filter(d => d.starred);
-  let confirmMsg = `确定要清空全部 ${recents.length} 项本地文件历史记录吗？\n（此操作仅清除访问历史，不会删除电脑中的物理文件）`;
-
-  if (starredDocs.length > 0) {
-    confirmMsg = `列表中有 ${starredDocs.length} 个标有星标的文档，确认后将保留星标记录，其余清除。确定继续吗？`;
-  }
+  let confirmMsg = starredDocs.length > 0
+    ? `将清空 ${recents.length} 项历史记录（保留 ${starredDocs.length} 项星标收藏，本地物理文件不受影响），确定清空吗？`
+    : `确定清空全部 ${recents.length} 项最近文件记录吗？本地磁盘物理文件不会被删除。`;
 
   const confirmed = await appConfirm({
     title: "清空最近文件记录",
@@ -289,6 +287,18 @@ export function renderHomeHub(renderApp, openWorkspace) {
 
   if (navWorkspaceBtn) navWorkspaceBtn.style.display = hasActiveTabs ? "flex" : "none";
   if (quickResumeBtn) quickResumeBtn.style.display = hasActiveTabs ? "inline-flex" : "none";
+
+  const liveDot = document.getElementById("nav-workspace-live-dot") || document.querySelector(".workspace-live-dot");
+  if (liveDot && hasActiveTabs) {
+    const hasUnsaved = (state.tabs || []).some(t => !t._isLocked && (t.isDirty || !t.filePath));
+    if (hasUnsaved) {
+      liveDot.className = "workspace-live-dot has-unsaved";
+      liveDot.title = "有未保存的导图修改";
+    } else {
+      liveDot.className = "workspace-live-dot all-saved";
+      liveDot.title = "所有导图已安全保存";
+    }
+  }
 
   const pageHome = document.getElementById("home-tab-page-home");
   const pageTemplates = document.getElementById("home-tab-page-templates");

@@ -413,18 +413,10 @@ export async function promptEditNodeLink(node) {
  */
 export function isClickOnNodeLink(node, clickWorldX, clickWorldY) {
   if (!node || !node.link) return false;
-  const padX = Math.max(4, Math.round((node.width - (node.contentWidth || 0)) / 2));
-  let currentOffset = padX;
-  if (node.todo) currentOffset += 16;
-  if (node.icon) currentOffset += 16;
-  if (node.priority) currentOffset += 19;
-  if (node.progress !== undefined && node.progress !== null && node.progress !== '') currentOffset += 15;
-  if (node.note) currentOffset += 15;
-
-  const linkBadgeLeft = node.x + currentOffset;
-  const linkBadgeRight = linkBadgeLeft + 17;
-  const centerY = node.y + node.height / 2;
-
-  return clickWorldX >= linkBadgeLeft && clickWorldX <= linkBadgeRight &&
-         clickWorldY >= centerY - 10 && clickWorldY <= centerY + 10;
+  if (node._linkRect) {
+    const { x, y, width, height } = node._linkRect;
+    return clickWorldX >= x - 3 && clickWorldX <= x + width + 3 &&
+           clickWorldY >= y - 3 && clickWorldY <= y + height + 3;
+  }
+  return false;
 }

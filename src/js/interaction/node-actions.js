@@ -3,6 +3,7 @@ import { showToast } from "../ui/dialog.js";
 import { COMMANDS } from "../core/history.js";
 import { locateFocusedNode } from "../core/camera.js";
 import { handleNodesMigrationTodoProgress, syncMigratedNodeStyles } from "../ui/todo.js";
+import { syncInspectorUi } from "../ui/inspector.js";
 import { ensureLayoutReady } from "../geometry/layout.js";
 
 function resolveCtx(a, b) {
@@ -48,6 +49,7 @@ export function addChildNode(customCtxOrRender = null, maybeCtx = null) {
   ctx.markLayoutDirty(p.id);
   ensureLayoutReady(ctx.tab, true);
 
+  syncInspectorUi(ctx);
   bus.emit(EVENTS.RENDER_APP);
   // 🌟 新建节点进入输入前瞬时就位相机，杜绝动画过渡中坐标漂移导致输入框挂错位置
   locateFocusedNode(child.id, false, ctx, "create");
@@ -84,6 +86,7 @@ export function addSiblingNode(customCtxOrRender = null, maybeCtx = null) {
   ctx.markLayoutDirty(parent.id);
   ensureLayoutReady(ctx.tab, true);
 
+  syncInspectorUi(ctx);
   bus.emit(EVENTS.RENDER_APP);
   // 🌟 新建节点进入输入前瞬时就位相机，杜绝动画过渡中坐标漂移导致输入框挂错位置
   locateFocusedNode(sib.id, false, ctx, "create");
@@ -177,6 +180,7 @@ export function deleteSelectedNodes(customCtxOrRender = null, maybeCtx = null) {
   ctx.selectNode(fallbackId);
   ctx.markLayoutDirty(fallbackId);
 
+  syncInspectorUi(ctx);
   bus.emit(EVENTS.RENDER_APP);
   locateFocusedNode(fallbackId, true, ctx, "keyboard");
 }
@@ -219,8 +223,8 @@ export function copySelectedNodes(customCtx = null, explicitNode = null) {
 
   state.clipboardBranches = validNodes.map(sanitizeTreeForHistory);
   state.clipboardBranch = state.clipboardBranches[0];
-  const tip = validNodes.length === 1 ? `「${validNodes[0].text || "主题"}」` : `${validNodes.length} 个分支`;
-  showToast(`📋 已复制${tip}`);
+  const tip = validNodes.length === 1 ? (validNodes[0].text || "分支") : `${validNodes.length} 个分支`;
+  showToast(`📋 已复制: ${tip}`);
 }
 
 // 🌟 领域服务：剪切选中分支（原子事务 + 进度重算 + 重绘通知）
@@ -297,8 +301,8 @@ export function cutSelectedNodes(customCtx = null, explicitNode = null) {
   ctx.selectNode(fallbackId);
   ctx.markLayoutDirty(fallbackId);
   bus.emit(EVENTS.RENDER_APP);
-  const tip = validNodes.length === 1 ? `「${validNodes[0].text || "主题"}」` : `${validNodes.length} 个分支`;
-  showToast(`✂️ 已剪切${tip}`);
+  const tip = validNodes.length === 1 ? (validNodes[0].text || "分支") : `${validNodes.length} 个分支`;
+  showToast(`✂️ 已剪切: ${tip}`);
 }
 
 // 🌟 领域服务：从剪贴板粘贴分支到目标父节点下
@@ -345,7 +349,7 @@ export function pasteNodes(targetNode = null, customCtx = null) {
   ctx.markLayoutDirty(p.id);
   bus.emit(EVENTS.RENDER_APP);
   const tip = branches.length === 1 ? `「${branches[0].text || "主题"}」` : `${branches.length} 个分支`;
-  showToast(`📥 已粘贴${tip}`);
+  showToast(`📥 已粘贴: ${tip}`);
 }
 
 bus.on(EVENTS.NODE_ADD_CHILD, ({ ctx }) => addChildNode(null, ctx));

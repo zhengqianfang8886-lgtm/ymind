@@ -13,7 +13,7 @@ import { showToast } from "./dialog.js";
 import { serializeTabToPackage, deserializePackage, parseTextToTree, extractRealXMindZip } from "../core/serializer.js";
 import { recordRecentDoc } from "./home.js";
 import { showLockScreen, updateSecurityDockStatus } from "./vault.js";
-import { startEditNode, setDropIndicator, ensureLayoutReady } from "../render/render.js";
+import { startEditNode, setDropIndicator } from "../render/render.js";
 import { isClickOnNodeLink, navigateDeepLink, promptEditNodeLink } from "./deep-link.js";
 import { isClickOnCheckbox, toggleTaskDone, toggleNodeTodo, handleNodesMigrationTodoProgress, syncMigratedNodeStyles } from "./todo.js";
 import { isClickOnDueDatePill, promptEditDueDate } from "./due-date.js";
@@ -342,7 +342,7 @@ export function initEventListeners(renderApp) {
     const isVisible = (id) => isNodeVisibleInTree(id, curRoot);
 
     const badgeHitRadius = Math.max(18, 22 / s);
-    let badgeNode = curTab?.spatialIndex?.pickCollapseBadge(worldX, worldY, docCtx?.focusedRootId, isVisible, badgeHitRadius, curRoot);
+    let badgeNode = curTab?.spatialIndex?.pickCollapseBadge(worldX, worldY, docCtx?.focusedRootId, isVisible, badgeHitRadius);
 
     if (badgeNode) {
       lastBadgeInteractionTime = Date.now();
@@ -405,8 +405,7 @@ export function initEventListeners(renderApp) {
         docCtx.isLayoutDirty = true;
         if (docCtx.tab) docCtx.tab.isLayoutDirty = true;
         docCtx.markLayoutDirty(realNode.id);
-        // 🌟 立即执行同步几何重排与目标坐标就位，保证弹簧步调完全一致
-        ensureLayoutReady(docCtx.tab, true);
+        // 🌟 统一交由物理动效引擎在下一个 rAF 平滑重绘，杜绝同帧双重重绘引发的画面闪烁
         bus.emit(EVENTS.RENDER_CANVAS_ONLY);
       }
       return;
@@ -596,7 +595,7 @@ export function initEventListeners(renderApp) {
           const curRoot = docCtx ? (findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData) : null;
           const isVisible = (id) => isNodeVisibleInTree(id, curRoot);
 
-          const badgeHit = curTab?.spatialIndex?.pickCollapseBadge(wx, wy, docCtx?.focusedRootId, isVisible, Math.max(18, 22 / s), curRoot);
+          const badgeHit = curTab?.spatialIndex?.pickCollapseBadge(wx, wy, docCtx?.focusedRootId, isVisible, Math.max(16, 18 / s));
           const nodeHit = badgeHit || curTab?.spatialIndex?.pickNode(wx, wy, 8, isVisible);
 
           if (e.shiftKey) {

@@ -2,7 +2,8 @@ import { getActiveDocumentContext, findNode } from "../core/state.js";
 import { ensureLayoutReady } from "../geometry/layout.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
 import { drawNodeContent } from "../render/node-drawer.js";
-import { showToast, escapeHtml } from "./dialog.js";
+import { showToast, escapeHtml, sanitizeFilename } from "./dialog.js";
+import { isDarkCanvasTheme } from "../data/palettes.js";
 
 const THEME_PRESETS = {
   "studio-white": { bg: "#f8fafc", dot: "rgba(148, 163, 184, 0.32)", line: "rgba(148, 163, 184, 0.32)" },
@@ -145,7 +146,7 @@ function drawSnapBranchNodes(ctx, node, isRoot, docCtx) {
   const nh = node.height || 36;
   const boxStyle = docCtx.boxStyle || "squircle";
   const isGlobalDark = document.documentElement.getAttribute("data-theme") === "dark";
-  const isDarkCanvas = isGlobalDark || ["space-gray", "midnight-abyss", "prussian-navy", "slate-chalkboard", "cyber-violet", "obsidian-coffee"].includes(docCtx.canvasBgColor);
+  const isDarkCanvas = isGlobalDark || isDarkCanvasTheme(docCtx.canvasBgColor);
 
   ctx.save();
   const r = isRoot ? 11 : 7;
@@ -203,7 +204,6 @@ export function generateCodeSnapCanvas(targetNode = null) {
   const docCtx = getActiveDocumentContext();
   if (!docCtx || !docCtx.mindData) return null;
 
-  // 🌟 核心防御：导出前无条件全量重排，确保所有节点几何绝对就绪
   const tab = docCtx.tab;
   if (tab) {
     try {
@@ -213,18 +213,15 @@ export function generateCodeSnapCanvas(targetNode = null) {
     }
   }
 
+  // 🌟 核心：优先导出显式指定节点或当前选中的焦点分支节点；无选中时导出全图
   const root = targetNode || docCtx.primarySelectedNode || findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData;
   const bounds = getSubtreeBounds(root);
 
   const dpr = 2;
-  const paddingOuter = 26;
-  const paddingInner = 24;
+  const padding = 36; // 纯净留白，紧凑舒展
 
-  const cardWidth = Math.max(160, Math.ceil(bounds.width + paddingInner * 2));
-  const cardHeight = Math.max(100, Math.ceil(bounds.height + paddingInner * 2));
-
-  const totalWidth = cardWidth + paddingOuter * 2;
-  const totalHeight = cardHeight + paddingOuter * 2;
+  const totalWidth = Math.max(200, Math.ceil(bounds.width + padding * 2));
+  const totalHeight = Math.max(120, Math.ceil(bounds.height + padding * 2));
 
   const canvas = document.createElement("canvas");
   canvas.width = totalWidth * dpr;
@@ -236,58 +233,21 @@ export function generateCodeSnapCanvas(targetNode = null) {
   const bgColorKey = docCtx.canvasBgColor || "studio-white";
   const bgPatternKey = docCtx.canvasBgPattern || "dots";
   const theme = THEME_PRESETS[bgColorKey] || THEME_PRESETS["studio-white"];
-  const isDarkCanvas = ["space-gray", "midnight-abyss", "prussian-navy", "slate-chalkboard", "cyber-violet", "obsidian-coffee"].includes(bgColorKey);
 
-  // 1. 自适应柔光渐变外衬底
-  const bgGrad = ctx.createLinearGradient(0, 0, totalWidth, totalHeight);
-  if (isDarkCanvas) {
-    bgGrad.addColorStop(0, "#1c222b");
-    bgGrad.addColorStop(0.5, "#12161f");
-    bgGrad.addColorStop(1, "#0a0c10");
-  } else {
-    bgGrad.addColorStop(0, "#7f7fd5");
-    bgGrad.addColorStop(0.5, "#86a8e7");
-    bgGrad.addColorStop(1, "#91eae4");
-  }
-  ctx.fillStyle = bgGrad;
+  // 1. 填充纯净画布真实底色（彻底去除外层流光背景与多余阴影）
+  ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, totalWidth, totalHeight);
 
-  // 2. 主卡片大阴影与当前画布真实底色
-  const cardX = paddingOuter;
-  const cardY = paddingOuter;
-
-  ctx.save();
-  ctx.shadowColor = isDarkCanvas ? "rgba(0, 0, 0, 0.65)" : "rgba(15, 23, 42, 0.28)";
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 12;
-
-  ctx.fillStyle = theme.bg;
-  drawAppleSquircle(ctx, cardX, cardY, cardWidth, cardHeight, 14);
-  ctx.fill();
-  ctx.restore();
-
-  // 3. 绘制画布真实底纹纹理
-  ctx.save();
-  drawAppleSquircle(ctx, cardX, cardY, cardWidth, cardHeight, 14);
-  ctx.clip();
+  // 2. 平铺绘制画布真实底纹（点阵/方格等）
   const pattern = createTexturePattern(ctx, bgPatternKey, theme);
   if (pattern) {
     ctx.fillStyle = pattern;
-    ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
+    ctx.fillRect(0, 0, totalWidth, totalHeight);
   }
-  ctx.restore();
 
-  // 卡片内嵌高光微边框
-  ctx.save();
-  ctx.strokeStyle = isDarkCanvas ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.85)";
-  ctx.lineWidth = 1;
-  drawAppleSquircle(ctx, cardX, cardY, cardWidth, cardHeight, 14);
-  ctx.stroke();
-  ctx.restore();
-
-  // 4. 紧凑排版：无标题栏、无圆点、无水印
-  const contentOffsetX = cardX + paddingInner - bounds.minX;
-  const contentOffsetY = cardY + paddingInner - bounds.minY;
+  // 3. 内容居中偏移并绘制完整脑图连线与节点
+  const contentOffsetX = padding - bounds.minX;
+  const contentOffsetY = padding - bounds.minY;
 
   ctx.save();
   ctx.translate(contentOffsetX, contentOffsetY);
@@ -310,19 +270,12 @@ export function openSnapshotModal(explicitNode = null) {
     return;
   }
 
-  let canvas = null;
-  try {
-    canvas = generateCodeSnapCanvas(explicitNode);
-  } catch (err) {
-    console.error("[Snapshot Render Error]", err);
-    showToast("⚠️ 生成快照时出错: " + (err?.message || "几何解析失败"));
-    return;
-  }
+  // 🌟 智能探测焦点节点：若用户选中了某个分支节点，优先提供分支导出通道
+  const primaryNode = explicitNode || docCtx.primarySelectedNode || null;
+  const fullRoot = findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData;
+  const isSubNode = Boolean(primaryNode && primaryNode.id !== fullRoot.id);
 
-  if (!canvas) {
-    showToast("⚠️ 当前无可导出的导图内容");
-    return;
-  }
+  let currentScope = isSubNode ? "branch" : "full";
 
   let modal = document.getElementById("apple-snapshot-modal");
   if (!modal) {
@@ -332,12 +285,40 @@ export function openSnapshotModal(explicitNode = null) {
     document.body.appendChild(modal);
   }
 
-  const dataUrl = canvas.toDataURL("image/png");
-  const fileTitle = (explicitNode?.text || docCtx?.tab?.title || "思维导图").trim();
-  const safeFilename = `${fileTitle}-snap.png`;
+  function getActiveRoot() {
+    return (currentScope === "branch" && primaryNode) ? primaryNode : fullRoot;
+  }
+
+  let currentCanvas = null;
+  let currentDataUrl = "";
+  let currentFilename = "";
+
+  function renderSnapshotPreview() {
+    const activeRoot = getActiveRoot();
+    try {
+      currentCanvas = generateCodeSnapCanvas(activeRoot);
+    } catch (err) {
+      console.error("[Snapshot Render Error]", err);
+      showToast("⚠️ 生成快照时出错: " + (err?.message || "几何解析失败"));
+      return false;
+    }
+    if (!currentCanvas) return false;
+
+    currentDataUrl = currentCanvas.toDataURL("image/png");
+    const rawTitle = (activeRoot?.text || docCtx?.tab?.title || "思维导图").trim();
+    currentFilename = `${sanitizeFilename(rawTitle)}-snap.png`;
+    return true;
+  }
+
+  if (!renderSnapshotPreview()) {
+    showToast("⚠️ 当前无可导出的导图内容");
+    return;
+  }
+
+  const subNodeText = isSubNode ? (primaryNode.text || "选中分支") : "";
 
   modal.innerHTML = `
-    <div class="apple-modal-card" style="width: 720px; max-width: 95vw; max-height: 90vh; gap: 14px; display: flex; flex-direction: column;">
+    <div class="apple-modal-card" style="width: 720px; max-width: 95vw; max-height: 90vh; gap: 12px; display: flex; flex-direction: column;">
       <div class="apple-modal-header" style="justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <div class="modal-header-icon primary" style="font-size: 18px;">📸</div>
@@ -349,12 +330,26 @@ export function openSnapshotModal(explicitNode = null) {
         <button id="btn-snap-close-x" class="inspector-close-btn" style="width: 28px; height: 28px;">✕</button>
       </div>
 
+      ${isSubNode ? `
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 2px;">
+          <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">导出范围:</span>
+          <div class="segmented-style-row" style="width: auto; max-width: 360px; display: inline-flex;">
+            <button id="snap-scope-branch" class="style-btn ${currentScope === 'branch' ? 'active' : ''}" style="padding: 4px 12px;">
+              🎯 分支「${escapeHtml(subNodeText)}」
+            </button>
+            <button id="snap-scope-full" class="style-btn ${currentScope === 'full' ? 'active' : ''}" style="padding: 4px 12px;">
+              🌐 完整导图全貌
+            </button>
+          </div>
+        </div>
+      ` : ''}
+
       <div class="apple-modal-body" style="flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; background: rgba(0,0,0,0.03); border-radius: 14px; padding: 14px; border: 1px solid var(--border-subtle);">
-        <img src="${dataUrl}" style="max-width: 100%; max-height: 52vh; border-radius: 8px; box-shadow: 0 12px 36px rgba(0,0,0,0.18); object-fit: contain;" alt="Snapshot Preview" />
+        <img id="snap-preview-img" src="${currentDataUrl}" style="max-width: 100%; max-height: 52vh; border-radius: 8px; box-shadow: 0 12px 36px rgba(0,0,0,0.18); object-fit: contain;" alt="Snapshot Preview" />
       </div>
 
       <div class="apple-modal-footer" style="justify-content: space-between; margin-top: 4px;">
-        <span style="font-size: 11.5px; color: var(--text-tertiary);">尺寸: ${canvas.width / 2} × ${canvas.height / 2} px (2x)</span>
+        <span id="snap-meta-size" style="font-size: 11.5px; color: var(--text-tertiary);">尺寸: ${currentCanvas.width / 2} × ${currentCanvas.height / 2} px (2x)</span>
         <div style="display: flex; gap: 10px;">
           <button id="btn-snap-cancel" class="modal-btn modal-btn-secondary">关闭</button>
           <button id="btn-snap-copy" class="modal-btn modal-btn-secondary" style="color: var(--apple-blue); font-weight: 600;">📋 复制图片</button>
@@ -374,9 +369,33 @@ export function openSnapshotModal(explicitNode = null) {
   modal.querySelector("#btn-snap-close-x")?.addEventListener("click", closeModal);
   modal.querySelector("#btn-snap-cancel")?.addEventListener("click", closeModal);
 
+  function updateModalPreview() {
+    const img = modal.querySelector("#snap-preview-img");
+    const metaSize = modal.querySelector("#snap-meta-size");
+    if (img) img.src = currentDataUrl;
+    if (metaSize && currentCanvas) metaSize.innerText = `尺寸: ${currentCanvas.width / 2} × ${currentCanvas.height / 2} px (2x)`;
+    modal.querySelector("#snap-scope-branch")?.classList.toggle("active", currentScope === "branch");
+    modal.querySelector("#snap-scope-full")?.classList.toggle("active", currentScope === "full");
+  }
+
+  modal.querySelector("#snap-scope-branch")?.addEventListener("click", () => {
+    if (currentScope !== "branch") {
+      currentScope = "branch";
+      if (renderSnapshotPreview()) updateModalPreview();
+    }
+  });
+
+  modal.querySelector("#snap-scope-full")?.addEventListener("click", () => {
+    if (currentScope !== "full") {
+      currentScope = "full";
+      if (renderSnapshotPreview()) updateModalPreview();
+    }
+  });
+
   // 1. 复制到系统剪贴板
   modal.querySelector("#btn-snap-copy")?.addEventListener("click", () => {
-    canvas.toBlob(async (blob) => {
+    if (!currentCanvas) return;
+    currentCanvas.toBlob(async (blob) => {
       if (!blob) return;
       try {
         if (navigator.clipboard && window.ClipboardItem) {
@@ -394,23 +413,16 @@ export function openSnapshotModal(explicitNode = null) {
 
   // 2. 保存图片文件
   modal.querySelector("#btn-snap-save")?.addEventListener("click", () => {
+    if (!currentDataUrl) return;
     const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = safeFilename;
+    a.href = currentDataUrl;
+    a.download = currentFilename;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => a.remove(), 100);
-    showToast(`💾 快照已保存: ${safeFilename}`);
+    showToast(`💾 快照已保存: ${currentFilename}`);
     closeModal();
   });
 }
 
-// 🌟 全局事件委托兜底保障：确保任意时序点击均能响应
-if (typeof document !== "undefined") {
-  document.addEventListener("click", (e) => {
-    if (e.target.closest("#btn-export-snap")) {
-      e.preventDefault();
-      openSnapshotModal();
-    }
-  });
-}
+

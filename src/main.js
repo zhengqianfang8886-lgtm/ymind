@@ -1,8 +1,8 @@
 import { checkForUpdates } from "./js/ui/updater.js";
 import { isApplePlatform } from "./js/interaction/shortcuts.js";
-import { state, getActiveTab, createNewTab, getActiveDocumentContext } from "./js/core/state.js";
+import { state, getActiveTab, createNewTab, getActiveDocumentContext, findNode } from "./js/core/state.js";
 import { getGlobalSettings, saveGlobalSettings, applyAppTheme } from "./js/core/config.js";
-import { render, resizeCanvas, syncInlineEditorPosition } from "./js/render/render.js";
+import { render, resizeCanvas, syncInlineEditorPosition, updateBreadcrumbs } from "./js/render/render.js";
 import { renderOutliner } from "./js/render/outliner.js";
 import { camera, requestTransformUpdate, locateFocusedNode, stopAllCameraAnimations } from "./js/core/camera.js";
 import { initEventListeners, updateSelectionOnly } from "./js/ui/events.js";
@@ -131,6 +131,10 @@ function renderApp() {
       btnOut?.classList.add("active-mode");
       closeNotesDrawer();
       renderOutliner(renderApp);
+      updateBreadcrumbs(docCtx, (id) => {
+        docCtx.focusBranch(id);
+        renderApp();
+      });
     } else {
       outlinerView?.classList.add("hidden");
       viewport?.classList.remove("hidden");
@@ -147,6 +151,8 @@ function renderApp() {
         },
         onRequestTransform: requestTransformUpdate
       });
+      // 🌟 核心保底：每次重绘应用时无条件同步侧边栏，杜绝非鼠标选区变更后的僵尸状态
+      syncInspectorUi();
     }
   } catch (err) {
     console.error("[YMind Critical Render Error]", err);

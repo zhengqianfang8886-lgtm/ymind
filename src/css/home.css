@@ -19,7 +19,34 @@ body.platform-mac .sidebar-header {
 .home-nav-menu { display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .btn-return-workspace { background: linear-gradient(135deg, rgba(0, 113, 227, 0.12), rgba(0, 113, 227, 0.05)) !important; color: var(--apple-blue) !important; font-weight: 600 !important; border: 1px solid rgba(0, 113, 227, 0.25); margin-bottom: 6px; }
 .btn-return-workspace:hover { background: var(--apple-blue) !important; color: #ffffff !important; }
-.workspace-live-dot { width: 7px; height: 7px; border-radius: 50%; -webkit-corner-smoothing: 0.62; background: var(--apple-green); margin-left: auto; box-shadow: 0 0 6px var(--apple-green); animation: pulseLive 2s infinite ease-in-out; }
+.workspace-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  -webkit-corner-smoothing: 0.62;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 🌟 仅当有未保存修改或草稿时，呈现发光呼吸动态指示状态 */
+.workspace-live-dot.has-unsaved {
+  background: var(--apple-green, #34c759);
+  box-shadow: 0 0 6px var(--apple-green, #34c759);
+  animation: pulseLive 2s infinite ease-in-out;
+}
+
+/* 🌟 所有文件均已保存时的静止极简状态（消除多余打扰） */
+.workspace-live-dot.all-saved {
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: none;
+  animation: none;
+}
+
+[data-theme="dark"] .workspace-live-dot.all-saved {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 @keyframes pulseLive { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
 .home-nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; -webkit-corner-smoothing: 0.62; font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: all 0.15s ease; }
 .home-nav-item:hover { background: rgba(0, 0, 0, 0.04); color: var(--text-primary); }
