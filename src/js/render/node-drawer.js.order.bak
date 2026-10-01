@@ -19,34 +19,6 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
   const centerY = node.y + node.height / 2;
   let hasAnyBadge = false;
 
-  // 0.2 🌟 子节点有序列表编号徽章 (1, 2, 3...)
-  if (node._orderNumber && currentScale >= 0.42) {
-    const numStr = String(node._orderNumber);
-    const numW = Math.max(15, measureTextWidth(numStr, 9, "700", "normal", false) + 8);
-    const badgeX = node.x + currentOffset;
-    const badgeY = centerY - 7;
-    ctx.beginPath();
-    drawAppleSquircle(ctx, badgeX, badgeY, numW, 14, 3.5);
-    ctx.fillStyle = isDarkCanvas ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 113, 227, 0.09)";
-    ctx.fill();
-    ctx.strokeStyle = isDarkCanvas ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 113, 227, 0.24)";
-    ctx.lineWidth = 0.9;
-    ctx.stroke();
-
-    ctx.fillStyle = isDarkCanvas ? "#93c5fd" : "#0071e3";
-    ctx.font = `bold 9px ${fontFam}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(numStr, badgeX + numW / 2, centerY + 0.2);
-
-    currentOffset += (numW + 4);
-    hasAnyBadge = true;
-  } else if (node._orderNumber) {
-    const numStr = String(node._orderNumber);
-    currentOffset += Math.max(15, numStr.length * 7 + 8) + 4;
-    hasAnyBadge = true;
-  }
-
   // 0.5 🌟 待办复选框
   if (node.todo && currentScale >= 0.45) {
     const boxX = node.x + currentOffset;

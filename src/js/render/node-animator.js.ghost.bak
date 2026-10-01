@@ -1,6 +1,7 @@
 // YMind Pro - 润物细无声的 Apple 级仿生连续物理动效引擎
 import { bus, EVENTS } from "../core/event-bus.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
+import { drawNodeContent } from "./node-drawer.js";
 import { isDarkCanvasTheme } from "../data/palettes.js";
 
 class NodeAnimator {
@@ -12,19 +13,9 @@ class NodeAnimator {
     this.inFrame = false;
 
     // 🌟 核心突破：跨引用持久状态映射表 (Stable Node ID -> Physics State)
+    // 彻底解决撤销/重做 deepCloneTree 导致对象引用断裂而误触发全量爆炸展开
     this.nodeStateMap = new Map();
     this.collapsingEntries = [];
-  }
-
-  // 🌟 LRU 物理状态防膨胀：超出 1200 个节点时淘汰最老条目，防止长时间运行内存暴毙
-  safeSetNodeState(id, stateObj) {
-    if (!id) return;
-    if (this.nodeStateMap.size > 1200) {
-      const oldestKey = this.nodeStateMap.keys().next().value;
-      this.nodeStateMap.delete(oldestKey);
-    }
-    // 物理直接操作内部 Map，绝对禁止自调用
-    this.nodeStateMap.set(id, stateObj);
   }
 
   isAnimating(node) {
@@ -35,6 +26,7 @@ class NodeAnimator {
   prepareExpand(parentNode) {
     if (!parentNode || !parentNode.children) return;
 
+    // 彻底清除正在收拢列表中的同分支后代，杜绝双向动画重叠拉扯与残影
     const collectSubtreeIds = (n, set = new Set()) => {
       if (!n) return set;
       set.add(n.id);
@@ -68,6 +60,7 @@ class NodeAnimator {
       c._curAlpha = 0.0;
       c._isExpanding = true;
 
+      // 仅当子节点本身是展开状态时，其后代才递归初始化，尊重真实折叠语义
       if (c.children && c.children.length > 0 && !c.collapsed) {
         for (let i = 0; i < c.children.length; i++) stack.push(c.children[i]);
       }
@@ -78,6 +71,7 @@ class NodeAnimator {
   collapseBranch(parentNode) {
     if (!parentNode || !parentNode.children || parentNode.children.length === 0) return;
 
+    // 清除既有收拢条目中冲突的重复项，保证单一真相源
     const collectSubtreeIds = (n, set = new Set()) => {
       if (!n) return set;
       set.add(n.id);
@@ -158,13 +152,15 @@ class NodeAnimator {
       delete node._vx;
       delete node._vy;
       if (node.id) {
-        this.safeSetNodeState(node.id, { x: targetX, y: targetY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
+        this.nodeStateMap.set(node.id, { x: targetX, y: targetY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
       }
       return;
     }
 
     const stateRecord = node.id ? this.nodeStateMap.get(node.id) : null;
 
+    // 🌟 准则 1：空间连续性继承 (Spatial Continuity)
+    // 只要节点在上一帧存在历史物理状态，无条件继承上一次的真实屏幕坐标与速度！
     if (stateRecord && Number.isFinite(stateRecord.x) && Number.isFinite(stateRecord.y)) {
       node._curX = stateRecord.x;
       node._curY = stateRecord.y;
@@ -173,7 +169,9 @@ class NodeAnimator {
       node._vy = stateRecord.vy ?? 0;
       node._delay = 0;
     } else if (node._curX === undefined || !Number.isFinite(node._curX) || !Number.isFinite(node._curY)) {
+      // 🌟 准则 2：真正新入场节点的入场策略
       if (node._isExpanding && parentNode) {
+        // A. 用户手动点击加号展开分支：从父节点边缘自然萌芽绽放
         const px = Number.isFinite(parentNode._curX) ? parentNode._curX : (parentNode.x || targetX);
         const py = Number.isFinite(parentNode._curY) ? parentNode._curY : (parentNode.y || targetY);
         const pw = parentNode.width || 80;
@@ -186,6 +184,8 @@ class NodeAnimator {
         node._delay = Math.min(48, (childIndex || 0) * 12);
         delete node._isExpanding;
       } else {
+        // B. 撤销复原 / 模板注入 / 动态新增：就地凝聚淡入 (Slot Materialization)
+        // 偏移不超过 8px，透明度从 0.35 开始，消除任何突兀的发射与长距离位移！
         const dir = node.branchDirection || "right";
         const offsetSign = dir === "left" ? 8 : (dir === "down" ? 0 : -8);
         node._curX = targetX + offsetSign;
@@ -200,6 +200,7 @@ class NodeAnimator {
     node._vx = Number.isFinite(node._vx) ? node._vx : 0;
     node._vy = Number.isFinite(node._vy) ? node._vy : 0;
 
+    // 动态制动：目标反向时立即消除残留惯性，杜绝过冲震荡
     const toDx = targetX - node._curX;
     const toDy = targetY - node._curY;
     if (node._vx * toDx < 0) node._vx = 0;
@@ -217,7 +218,7 @@ class NodeAnimator {
       node._vy = 0;
       this.animatingNodes.delete(node);
       if (node.id) {
-        this.safeSetNodeState(node.id, { x: targetX, y: targetY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
+        this.nodeStateMap.set(node.id, { x: targetX, y: targetY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
       }
     }
   }
@@ -238,7 +239,6 @@ class NodeAnimator {
     }
   }
 
-  // 🌟 高性能合批与 LOD 降级绘制（防卡顿与残影）
   drawCollapsingNodes(ctx, docCtx, scale) {
     if (!this.collapsingEntries || this.collapsingEntries.length === 0) return;
 
@@ -247,14 +247,15 @@ class NodeAnimator {
     const boxStyle = docCtx?.boxStyle || "squircle";
     const totalCount = this.collapsingEntries.length;
 
-    // 1. 连线合批优化 (Path2D Batching)
+    // 🌟 1. 连线合批优化 (Path2D Batching by Color)
+    // 将循环内数十上百次独立的 ctx.save/stroke/restore 压缩为按颜色的单次合批绘制
     const lineBatches = new Map();
     let avgAlpha = 0;
     let activeCount = 0;
 
     for (let i = 0; i < totalCount; i++) {
       const item = this.collapsingEntries[i];
-      if (item.alpha <= 0.05) continue;
+      if (item.alpha <= 0.01) continue;
 
       avgAlpha += item.alpha;
       activeCount++;
@@ -296,13 +297,14 @@ class NodeAnimator {
       ctx.restore();
     }
 
-    // 2. 卡片 LOD 极速降级
+    // 🌟 2. 卡片 LOD 极速降级与轻量化绘制
+    // 彻底切除收拢期间全量 drawNodeContent 的文本测量、字体解析、日期正则与徽章绘制开销
     const useFastGeom = totalCount > 15 || scale < 0.5;
 
     for (let i = 0; i < totalCount; i++) {
       const item = this.collapsingEntries[i];
       const { node, curX, curY, alpha, color } = item;
-      if (alpha <= 0.05) continue;
+      if (alpha <= 0.01) continue;
 
       const nw = node.width || 80;
       const nh = node.height || 36;
@@ -335,6 +337,7 @@ class NodeAnimator {
           ctx.stroke();
         }
 
+        // LOD 文本占位骨架线：仅在卡片足够大且半透明可见时绘制单条轻量灰线，免除一切字符排版计算
         if (alpha > 0.35 && nw > 28) {
           ctx.fillStyle = (boxStyle === "solid")
             ? "rgba(255, 255, 255, 0.5)"
@@ -365,6 +368,8 @@ class NodeAnimator {
       this.lastTime = now;
       let stillActive = false;
 
+      // 🌟 准则 3：高阶临界阻尼弹簧模型 (Critical Damping: tension=240, friction=31)
+      // 阻尼比 zeta = 31 / (2 * sqrt(240)) = 1.0005，彻底消除晃荡，瞬时平滑咬合
       const tension = 240;
       const friction = 31;
 
@@ -376,7 +381,7 @@ class NodeAnimator {
           node._curAlpha = 1.0;
           node._vx = 0;
           node._vy = 0;
-          if (node.id) this.safeSetNodeState(node.id, { x: node._curX, y: node._curY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
+          if (node.id) this.nodeStateMap.set(node.id, { x: node._curX, y: node._curY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
           this.animatingNodes.delete(node);
           continue;
         }
@@ -398,11 +403,13 @@ class NodeAnimator {
         node._curY += node._vy * dt;
 
         if (node._curAlpha < 1.0) {
+          // 150ms 快速柔光渐显
           node._curAlpha = Math.min(1.0, node._curAlpha + dt * 6.5);
         }
 
+        // 同步持久状态映射，供后续任意深拷贝还原即时读取
         if (node.id) {
-          this.safeSetNodeState(node.id, { x: node._curX, y: node._curY, alpha: node._curAlpha, vx: node._vx, vy: node._vy, time: Date.now() });
+          this.nodeStateMap.set(node.id, { x: node._curX, y: node._curY, alpha: node._curAlpha, vx: node._vx, vy: node._vy, time: Date.now() });
         }
 
         const isSettledX = Math.abs(node._curX - node._targetX) < 0.45 && Math.abs(node._vx) < 0.4;
@@ -417,7 +424,7 @@ class NodeAnimator {
           node._vy = 0;
           this.animatingNodes.delete(node);
           if (node.id) {
-            this.safeSetNodeState(node.id, { x: node._targetX, y: node._targetY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
+            this.nodeStateMap.set(node.id, { x: node._targetX, y: node._targetY, alpha: 1.0, vx: 0, vy: 0, time: Date.now() });
           }
         } else {
           stillActive = true;
@@ -427,13 +434,14 @@ class NodeAnimator {
       this.inFrame = false;
       bus.emit(EVENTS.RENDER_CANVAS_ONLY);
 
+      // 驱动收拢节点平滑吸入
       if (this.collapsingEntries && this.collapsingEntries.length > 0) {
         const remainingCollapsing = [];
         for (let i = 0; i < this.collapsingEntries.length; i++) {
           const item = this.collapsingEntries[i];
           const elapsed = now - item.startTime;
           const p = Math.min(1.0, elapsed / item.duration);
-          const ease = p * p * (3 - 2 * p);
+          const ease = p * p * (3 - 2 * p); // Smoothstep 曲线
           item.curX = item.startX + (item.targetX - item.startX) * ease;
           item.curY = item.startY + (item.targetY - item.startY) * ease;
           item.alpha = Math.max(0, 1.0 - p);
@@ -450,8 +458,6 @@ class NodeAnimator {
         this.rafId = requestAnimationFrame(step);
       } else {
         this.rafId = null;
-        // 🌟 终局清障：动画完全停止后，强制补发一帧纯净重绘，彻底擦除残影
-        bus.emit(EVENTS.RENDER_CANVAS_ONLY);
       }
     };
 

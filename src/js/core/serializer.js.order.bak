@@ -272,7 +272,6 @@ export function normalizeMindNode(n) {
     tags: tags.map(String),
     note: data.note || n.note || data.notes || n.notes || "",
     link: data.link || n.link || data.url || n.url || null,
-    ordered: Boolean(data.ordered || n.ordered),
     todo: Boolean(data.todo || n.todo),
     done: Boolean(data.done || n.done),
     dueDate: data.dueDate || n.dueDate || null,

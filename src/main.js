@@ -1,3 +1,4 @@
+import { initDevTools } from "./js/ui/devtools.js";
 import { checkForUpdates } from "./js/ui/updater.js";
 import { isApplePlatform } from "./js/interaction/shortcuts.js";
 import { state, getActiveTab, createNewTab, getActiveDocumentContext, findNode } from "./js/core/state.js";
@@ -155,9 +156,10 @@ function renderApp() {
       syncInspectorUi();
     }
   } catch (err) {
-    console.error("[YMind Critical Render Error]", err);
+    console.error("[YMind Critical Render Error - Detailed Stack]:", err);
     state.isLayoutDirty = true;
-    showToast("⚠️ 界面渲染发生异常，已重置拓扑缓存");
+    const msg = err && err.message ? err.message : String(err);
+    showToast(`⚠️ 渲染中断: ${msg.slice(0, 45)}`);
   }
 }
 
@@ -406,6 +408,7 @@ initIconPicker(renderApp);
 initAutoSaveEngine(renderApp);
 initSettingsViewEvents(renderApp);
 initInspectorEvents();
+initDevTools();
 
 document.getElementById("btn-theme-toggle")?.addEventListener("click", toggleAppTheme);
 document.getElementById("btn-theme-toggle-home")?.addEventListener("click", toggleAppTheme);

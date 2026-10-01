@@ -538,85 +538,62 @@
                 <svg class="accordion-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
               </div>
             </div>
-                        <div class="inspector-accordion-body" id="inspector-node-task-body">
-              <!-- 1. 功能模式轻量胶囊组 -->
-              <div class="sidebar-mode-pills-row">
-                <label class="sidebar-mode-chip" title="切换子节点自动有序列表 (1, 2, 3...)">
-                  <input type="checkbox" id="sidebar-order-toggle" />
-                  <span class="chip-box">🔢 编号</span>
-                </label>
-                <label class="sidebar-mode-chip" title="开启/关闭待办模式">
-                  <input type="checkbox" id="sidebar-task-toggle" />
-                  <span class="chip-box">☑️ 待办</span>
-                </label>
-                <label class="sidebar-mode-chip done-chip hidden" id="sidebar-done-wrap" title="标记任务是否已达成">
-                  <input type="checkbox" id="sidebar-task-done" />
-                  <span class="chip-box">✓ 已完成</span>
-                </label>
-              </div>
-
-              <!-- 2. 截止日期行内直调 (免弹窗) -->
-              <div class="sidebar-field-block">
-                <div class="field-header-row">
-                  <span class="field-title">📅 截止日期</span>
-                  <div class="field-active-pill-wrap" id="sidebar-due-pill-wrap">
-                    <span id="sidebar-due-text" class="field-val-badge">未设置</span>
-                    <button id="sidebar-due-clear" class="btn-val-clear hidden" title="清除截止日期">✕</button>
-                  </div>
-                </div>
-                <div class="inline-quick-presets" id="due-quick-presets">
-                  <button type="button" class="quick-pill" data-due="今天">今天</button>
-                  <button type="button" class="quick-pill" data-due="明天">明天</button>
-                  <button type="button" class="quick-pill" data-due="下周五">下周</button>
-                  <div class="inline-input-wrapper">
-                    <input type="text" id="sidebar-due-inline-input" class="inline-text-field" placeholder="自定日期 (如 09-25)..." />
-                  </div>
+            <div class="inspector-accordion-body" id="inspector-node-task-body">
+              <div class="line-group-subtitle">任务排期与状态</div>
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>☑️ 待办模式</span></div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <label class="apple-switch" title="开启/关闭待办模式">
+                    <input type="checkbox" id="sidebar-task-toggle" />
+                    <span class="apple-switch-slider"></span>
+                  </label>
+                  <label id="sidebar-done-wrap" class="sidebar-sub-check hidden" style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--text-secondary);cursor:pointer;">
+                    <input type="checkbox" id="sidebar-task-done" />
+                    <span>已完成</span>
+                  </label>
                 </div>
               </div>
 
-              <!-- 3. 预估耗时行内微药丸 (免弹窗) -->
-              <div class="sidebar-field-block">
-                <div class="field-header-row">
-                  <span class="field-title">⏱️ 预估耗时</span>
-                  <div class="field-active-pill-wrap" id="sidebar-dur-pill-wrap">
-                    <span id="sidebar-dur-text" class="field-val-badge">未设置</span>
-                    <button id="sidebar-dur-clear" class="btn-val-clear hidden" title="清除预估耗时">✕</button>
-                  </div>
-                </div>
-                <div class="inline-quick-presets" id="dur-quick-presets">
-                  <button type="button" class="quick-pill" data-dur="30m">30m</button>
-                  <button type="button" class="quick-pill" data-dur="1h">1h</button>
-                  <button type="button" class="quick-pill" data-dur="2h">2h</button>
-                  <button type="button" class="quick-pill" data-dur="4h">4h</button>
-                  <div class="inline-input-wrapper">
-                    <input type="text" id="sidebar-dur-inline-input" class="inline-text-field" placeholder="自定义 (如 1.5d)..." />
-                  </div>
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>📅 截止日期</span></div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span id="sidebar-due-text" class="sidebar-val-pill">未设置</span>
+                  <button id="sidebar-btn-edit-due" class="btn-sidebar-action" type="button">设置</button>
                 </div>
               </div>
 
-              <!-- 4. 链接与引用行内编辑 -->
-              <div class="sidebar-field-block">
-                <div class="field-header-row">
-                  <span class="field-title">🔗 目标链接 / 引用</span>
-                  <button id="sidebar-btn-copy-deep" class="btn-subtle-action" title="复制当前节点的专属深链 (ymind://)">
-                    📋 复制深链
-                  </button>
-                </div>
-                <div class="link-inline-row">
-                  <input type="text" id="sidebar-link-inline-input" class="inline-text-field" placeholder="输入网址、文件路径或 #节点ID..." />
-                  <button id="sidebar-btn-open-link" class="btn-link-action hidden" title="打开此链接">➔</button>
-                  <button id="sidebar-btn-pick-more" class="btn-link-action" title="打开高级文件/跨图选择面板">⋯</button>
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>⏱️ 预估耗时</span></div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span id="sidebar-dur-text" class="sidebar-val-pill">未设置</span>
+                  <button id="sidebar-btn-edit-dur" class="btn-sidebar-action" type="button">设置</button>
                 </div>
               </div>
 
-              <!-- 5. 紧凑型动作微工具带 (macOS 胶囊条) -->
-              <div class="sidebar-actions-strip">
-                <button id="sidebar-btn-focus" class="strip-btn" title="专注分支 / 退出专注"><span class="strip-icon">🔭</span><span class="strip-text">专注</span></button>
-                <button id="sidebar-btn-collapse" class="strip-btn" title="展开 / 折叠子分支"><span class="strip-icon">📁</span><span class="strip-text">折叠</span></button>
-                <button id="sidebar-btn-snapshot" class="strip-btn" title="导出此分支为精美图片快照"><span class="strip-icon">📸</span><span class="strip-text">快照</span></button>
-                <button id="sidebar-btn-copy" class="strip-btn" title="复制分支"><span class="strip-icon">📋</span><span class="strip-text">复制</span></button>
-                <button id="sidebar-btn-cut" class="strip-btn" title="剪切分支"><span class="strip-icon">✂️</span><span class="strip-text">剪切</span></button>
-                <button id="sidebar-btn-delete" class="strip-btn danger" title="删除此节点"><span class="strip-icon">🗑️</span><span class="strip-text">删除</span></button>
+              <div class="line-group-subtitle" style="margin-top:6px;">连接与引用</div>
+              <div class="sidebar-prop-row" style="align-items:flex-start;">
+                <div class="sidebar-prop-label" style="margin-top:3px;"><span>🔗 节点链接</span></div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:1;min-width:0;">
+                  <span id="sidebar-link-text" class="sidebar-val-pill link-val" title="暂无链接">无链接</span>
+                  <div style="display:flex;gap:4px;">
+                    <button id="sidebar-btn-open-link" class="btn-sidebar-action hidden" type="button">打开</button>
+                    <button id="sidebar-btn-edit-link" class="btn-sidebar-action" type="button">配置</button>
+                  </div>
+                </div>
+              </div>
+              <div class="sidebar-prop-row">
+                <div class="sidebar-prop-label"><span>📋 深度链接</span></div>
+                <button id="sidebar-btn-copy-deep" class="btn-sidebar-action" type="button" style="width:100%;justify-content:center;">复制专属链接</button>
+              </div>
+
+              <div class="line-group-subtitle" style="margin-top:6px;">分支动作与管理</div>
+              <div class="sidebar-action-grid">
+                <button id="sidebar-btn-focus" class="sidebar-grid-btn" type="button"><span class="btn-icon">🔭</span><span id="sidebar-txt-focus">专注分支</span></button>
+                <button id="sidebar-btn-collapse" class="sidebar-grid-btn" type="button"><span class="btn-icon">📁</span><span id="sidebar-txt-collapse">展开/折叠</span></button>
+                <button id="sidebar-btn-snapshot" class="sidebar-grid-btn" type="button"><span class="btn-icon">📸</span><span>导出快照</span></button>
+                <button id="sidebar-btn-copy" class="sidebar-grid-btn" type="button"><span class="btn-icon">📋</span><span>复制分支</span></button>
+                <button id="sidebar-btn-cut" class="sidebar-grid-btn" type="button"><span class="btn-icon">✂️</span><span>剪切分支</span></button>
+                <button id="sidebar-btn-delete" class="sidebar-grid-btn danger" type="button"><span class="btn-icon">🗑️</span><span>删除节点</span></button>
               </div>
             </div>
           </div>

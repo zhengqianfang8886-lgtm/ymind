@@ -255,11 +255,8 @@ function isRectVisible(x, y, w, h, vp) {
   return !(x + w < vp.left || x > vp.right || y + h < vp.top || y > vp.bottom);
 }
 
-function collectRenderPasses(node, level, docCtx, vpBounds, isRootOfView, primaryBatches, secondaryBatches, taperedBatches, visibleNodes, isUltraLOD, s, visitedNodes = new Set()) {
+function collectRenderPasses(node, level, docCtx, vpBounds, isRootOfView, primaryBatches, secondaryBatches, taperedBatches, visibleNodes, isUltraLOD, s) {
   if (!node) return;
-  const sId = String(node.id);
-  if (visitedNodes.has(sId)) return;
-  visitedNodes.add(sId);
   if (!isRootOfView && node.treeMinX !== undefined) {
     const tw = (node.treeMaxX || (node.x + node.width)) - node.treeMinX;
     const th = (node.treeMaxY || (node.y + node.height)) - node.treeMinY;
@@ -283,7 +280,7 @@ function collectRenderPasses(node, level, docCtx, vpBounds, isRootOfView, primar
         if (!path) { path = new Path2D(); targetBatches.set(color, path); }
         appendConnectionPath(path, node, child, lineStyle, isRootOfView, boxStyle, isUltraLOD);
       }
-      collectRenderPasses(child, level + 1, docCtx, vpBounds, false, primaryBatches, secondaryBatches, taperedBatches, visibleNodes, isUltraLOD, s, visitedNodes);
+      collectRenderPasses(child, level + 1, docCtx, vpBounds, false, primaryBatches, secondaryBatches, taperedBatches, visibleNodes, isUltraLOD, s);
     }
   }
 

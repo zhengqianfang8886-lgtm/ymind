@@ -429,14 +429,6 @@ export function computeLayout(root, level = 0, focusedRootId = "root", structure
   while (stack.length > 0) {
     const { node, lvl } = stack.pop();
     node._level = lvl;
-    if (node.children && Array.isArray(node.children)) {
-      for (let cIdx = 0; cIdx < node.children.length; cIdx++) {
-        const child = node.children[cIdx];
-        if (child && typeof child === "object") {
-          child._orderNumber = node.ordered ? (cIdx + 1) : null;
-        }
-      }
-    }
     measureNodeSize(node, lvl, focusedRootId);
 
     node.treeMinX = undefined;

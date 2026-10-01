@@ -1,6 +1,5 @@
 export class QuadTree {
-  // 🌟 精度跃升：maxDepth 由 6 提至 10，最小格子尺度由 2500px 细化至 156px，彻底消除密集区退化
-  constructor(boundary = { x: -80000, y: -80000, width: 160000, height: 160000 }, capacity = 16, depth = 0, maxDepth = 10) {
+  constructor(boundary = { x: -80000, y: -80000, width: 160000, height: 160000 }, capacity = 16, depth = 0, maxDepth = 6) {
     this.boundary = boundary;
     this.capacity = capacity;
     this.depth = depth;

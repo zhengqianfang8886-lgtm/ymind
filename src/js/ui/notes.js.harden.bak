@@ -733,7 +733,6 @@ export function openNotesDrawer(node) {
     return;
   }
   flushPendingNote();
-  activeNoteTabId = getActiveDocumentContext()?.tabId || null;
   activeNoteNodeId = targetNode.id;
   committedNoteText = targetNode.note || "";
 

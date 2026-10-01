@@ -258,10 +258,7 @@ export async function restoreSession() {
             validTabs.push(tab);
           }
         } catch {
-          // 🌟 守护会话：外接盘掉线、休眠唤醒延迟或网络盘卡顿时，绝不静默抹杀用户的 Tab！
-          console.warn("[HotExit] Storage device temporarily offline or inaccessible, retaining tab:", tab.filePath);
-          tab._isOffline = true;
-          validTabs.push(tab);
+          console.warn("[HotExit] Physical file deleted or inaccessible on disk, discarding ghost session:", tab.filePath);
         }
       } else {
         validTabs.push(tab);

@@ -155,28 +155,9 @@ export async function handleLoadedFileContent(contentData, filePath, renderApp, 
   bus.emit(EVENTS.SHOW_WORKSPACE);
 }
 
-// 🌟 全局物理文件保存排队互斥锁 (Save Mutex Queue)，防止自动与手动并发击穿文件
-const fileSaveLocks = new Set();
-
 export async function performSave(customTab = null, silent = false) {
   let tab = customTab || getActiveTab();
   if (!tab) return;
-  
-  const lockKey = tab.filePath || tab.id;
-  if (fileSaveLocks.has(lockKey)) {
-    // 正在写盘中，避免冲突，排队静默等待
-    return;
-  }
-  fileSaveLocks.add(lockKey);
-
-  try {
-    return await doPerformSaveInternal(tab, silent);
-  } finally {
-    fileSaveLocks.delete(lockKey);
-  }
-}
-
-async function doPerformSaveInternal(tab, silent) {
   if (tab._isLocked) {
     if (!silent) showToast("⚠️ 请先输入密码解锁后再保存");
     return;

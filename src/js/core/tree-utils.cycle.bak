@@ -75,31 +75,23 @@ function verifyParentChild(parent, childId) {
   return false;
 }
 
-function findParentRecursive(targetId, node, visited = new Set()) {
+function findParentRecursive(targetId, node) {
   if (!node || !node.children || !Array.isArray(node.children)) return null;
-  const sId = String(node.id);
-  if (visited.has(sId)) return null;
-  visited.add(sId);
-
   for (let i = 0; i < node.children.length; i++) {
     const child = node.children[i];
     if (child && String(child.id) === targetId) return node;
-    const res = findParentRecursive(targetId, child, visited);
+    const res = findParentRecursive(targetId, child);
     if (res) return res;
   }
   return null;
 }
 
-function findNodeRecursive(targetId, node, visited = new Set()) {
+function findNodeRecursive(targetId, node) {
   if (!node) return null;
-  const sId = String(node.id);
-  if (visited.has(sId)) return null;
-  visited.add(sId);
-
-  if (sId === targetId) return node;
+  if (String(node.id) === targetId) return node;
   if (node.children && Array.isArray(node.children)) {
     for (let i = 0; i < node.children.length; i++) {
-      const res = findNodeRecursive(targetId, node.children[i], visited);
+      const res = findNodeRecursive(targetId, node.children[i]);
       if (res) return res;
     }
   }

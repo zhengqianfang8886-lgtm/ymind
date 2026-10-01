@@ -1,5 +1,5 @@
 import { getActiveDocumentContext, findNode } from "../core/state.js";
-import { ensureLayoutReady, getActiveFontFamily, measureTextWidth } from "../geometry/layout.js";
+import { ensureLayoutReady } from "../geometry/layout.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
 import { drawNodeContent } from "../render/node-drawer.js";
 import { showToast, escapeHtml, sanitizeFilename } from "./dialog.js";
@@ -200,10 +200,7 @@ function drawSnapBranchNodes(ctx, node, isRoot, docCtx) {
   }
 }
 
-/**
- * 🌟 超高清位图生成核心（支持 2x / 3x / 4x 超采样）
- */
-export function generateCodeSnapCanvas(targetNode = null, scaleFactor = 2) {
+export function generateCodeSnapCanvas(targetNode = null) {
   const docCtx = getActiveDocumentContext();
   if (!docCtx || !docCtx.mindData) return null;
 
@@ -211,22 +208,24 @@ export function generateCodeSnapCanvas(targetNode = null, scaleFactor = 2) {
   if (tab) {
     try {
       ensureLayoutReady(tab, true);
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[Snapshot] ensureLayoutReady fallback:", e);
+    }
   }
 
+  // 🌟 核心：优先导出显式指定节点或当前选中的焦点分支节点；无选中时导出全图
   const root = targetNode || docCtx.primarySelectedNode || findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData;
   const bounds = getSubtreeBounds(root);
 
-  // 安全分辨率钳制 (避免超出 GPU Texture 16384px 硬件上限)
-  const dpr = Math.min(4, Math.max(1, scaleFactor));
-  const padding = 40;
+  const dpr = 2;
+  const padding = 36; // 纯净留白，紧凑舒展
 
-  const totalWidth = Math.max(240, Math.ceil(bounds.width + padding * 2));
-  const totalHeight = Math.max(140, Math.ceil(bounds.height + padding * 2));
+  const totalWidth = Math.max(200, Math.ceil(bounds.width + padding * 2));
+  const totalHeight = Math.max(120, Math.ceil(bounds.height + padding * 2));
 
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(totalWidth * dpr);
-  canvas.height = Math.round(totalHeight * dpr);
+  canvas.width = totalWidth * dpr;
+  canvas.height = totalHeight * dpr;
 
   const ctx = canvas.getContext("2d");
   ctx.scale(dpr, dpr);
@@ -235,15 +234,18 @@ export function generateCodeSnapCanvas(targetNode = null, scaleFactor = 2) {
   const bgPatternKey = docCtx.canvasBgPattern || "dots";
   const theme = THEME_PRESETS[bgColorKey] || THEME_PRESETS["studio-white"];
 
+  // 1. 填充纯净画布真实底色（彻底去除外层流光背景与多余阴影）
   ctx.fillStyle = theme.bg;
   ctx.fillRect(0, 0, totalWidth, totalHeight);
 
+  // 2. 平铺绘制画布真实底纹（点阵/方格等）
   const pattern = createTexturePattern(ctx, bgPatternKey, theme);
   if (pattern) {
     ctx.fillStyle = pattern;
     ctx.fillRect(0, 0, totalWidth, totalHeight);
   }
 
+  // 3. 内容居中偏移并绘制完整脑图连线与节点
   const contentOffsetX = padding - bounds.minX;
   const contentOffsetY = padding - bounds.minY;
 
@@ -257,86 +259,6 @@ export function generateCodeSnapCanvas(targetNode = null, scaleFactor = 2) {
   return canvas;
 }
 
-/**
- * 🌟 纯数学矢量 SVG 生成引擎 (支持无限放大绝对清晰)
- */
-export function generateCodeSnapSvg(targetNode = null) {
-  const docCtx = getActiveDocumentContext();
-  if (!docCtx || !docCtx.mindData) return null;
-
-  const root = targetNode || docCtx.primarySelectedNode || findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData;
-  const bounds = getSubtreeBounds(root);
-  const padding = 40;
-  const totalW = Math.max(240, Math.ceil(bounds.width + padding * 2));
-  const totalH = Math.max(140, Math.ceil(bounds.height + padding * 2));
-  const offX = padding - bounds.minX;
-  const offY = padding - bounds.minY;
-
-  const bgColorKey = docCtx.canvasBgColor || "studio-white";
-  const theme = THEME_PRESETS[bgColorKey] || THEME_PRESETS["studio-white"];
-  const isDark = isDarkCanvasTheme(bgColorKey);
-  const fontFam = getActiveFontFamily();
-
-  let svgElements = [];
-
-  // 1. 递归生成连线
-  function appendLines(node) {
-    if (!node.children || node.collapsed) return;
-    for (const child of node.children) {
-      if (typeof child.x !== "number") continue;
-      const isDown = child.branchDirection === "down";
-      const isLeft = child.branchDirection === "left";
-      const x1 = isDown ? (node.x + node.width / 2) : (isLeft ? node.x : (node.x + node.width));
-      const y1 = isDown ? (node.y + node.height) : (node.y + node.height / 2);
-      const x2 = isDown ? (child.x + child.width / 2) : (isLeft ? (child.x + child.width) : child.x);
-      const y2 = isDown ? child.y : (child.y + child.height / 2);
-
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const color = child.colorTheme ? child.colorTheme.line : "#86868b";
-      let pathD = "";
-      if (isDown) {
-        pathD = `M ${x1 + offX} ${y1 + offY} C ${x1 + offX} ${y1 + offY + dy * 0.5}, ${x2 + offX} ${y2 + offY - dy * 0.5}, ${x2 + offX} ${y2 + offY}`;
-      } else {
-        pathD = `M ${x1 + offX} ${y1 + offY} C ${x1 + offX + dx * 0.5} ${y1 + offY}, ${x2 + offX - dx * 0.5} ${y2 + offY}, ${x2 + offX} ${y2 + offY}`;
-      }
-      svgElements.push(`<path d="${pathD}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" />`);
-      appendLines(child);
-    }
-  }
-  appendLines(root);
-
-  // 2. 递归生成节点
-  function appendNodes(node, isRoot) {
-    if (typeof node.x !== "number") return;
-    const nx = node.x + offX;
-    const ny = node.y + offY;
-    const nw = node.width || 80;
-    const nh = node.height || 36;
-    const stroke = node.colorTheme ? node.colorTheme.border : (isDark ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.18)");
-    const fill = isRoot ? "#0071e3" : (isDark ? "#1e2430" : "#ffffff");
-    const textColor = isRoot ? "#ffffff" : (isDark ? "#f8fafc" : "#1d1d1f");
-
-    svgElements.push(`<rect x="${nx}" y="${ny}" width="${nw}" height="${nh}" rx="8" ry="8" fill="${fill}" stroke="${stroke}" stroke-width="2" />`);
-
-    const safeText = escapeHtml(node.text || "");
-    const textX = nx + nw / 2;
-    const textY = ny + nh / 2 + 4;
-    svgElements.push(`<text x="${textX}" y="${textY}" text-anchor="middle" font-family="${escapeHtml(fontFam)}" font-size="${isRoot ? 16 : 13}" font-weight="600" fill="${textColor}">${safeText}</text>`);
-
-    if (node.children && !node.collapsed) {
-      for (const c of node.children) appendNodes(c, false);
-    }
-  }
-  appendNodes(root, root.id === (docCtx.focusedRootId || docCtx.mindData.id));
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">
-  <rect width="100%" height="100%" fill="${theme.bg}"/>
-  ${svgElements.join("\n  ")}
-</svg>`;
-}
-
 export function openSnapshotModal(explicitNode = null) {
   const docCtx = getActiveDocumentContext();
   if (!docCtx || !docCtx.mindData) {
@@ -344,17 +266,16 @@ export function openSnapshotModal(explicitNode = null) {
     return;
   }
   if (docCtx.tab?.isEncrypted && docCtx.tab?._isLocked) {
-    showToast("🔒 当前导图已锁定，请先解锁后再导出");
+    showToast("🔒 当前导图已锁定，请先输入密码解锁后再导出");
     return;
   }
 
+  // 🌟 智能探测焦点节点：若用户选中了某个分支节点，优先提供分支导出通道
   const primaryNode = explicitNode || docCtx.primarySelectedNode || null;
   const fullRoot = findNode(docCtx.focusedRootId, docCtx.mindData) || docCtx.mindData;
   const isSubNode = Boolean(primaryNode && primaryNode.id !== fullRoot.id);
 
   let currentScope = isSubNode ? "branch" : "full";
-  let currentResolution = 2; // 2x | 3x | 4x
-  let currentFormat = "png"; // png | svg
 
   let modal = document.getElementById("apple-snapshot-modal");
   if (!modal) {
@@ -370,29 +291,26 @@ export function openSnapshotModal(explicitNode = null) {
 
   let currentCanvas = null;
   let currentDataUrl = "";
-  let currentSvgStr = "";
   let currentFilename = "";
 
-  function renderSnapshot() {
+  function renderSnapshotPreview() {
     const activeRoot = getActiveRoot();
-    const rawTitle = (activeRoot?.text || docCtx?.tab?.title || "思维导图").trim();
-
-    if (currentFormat === "svg") {
-      currentSvgStr = generateCodeSnapSvg(activeRoot);
-      const blob = new Blob([currentSvgStr], { type: "image/svg+xml;charset=utf-8" });
-      currentDataUrl = URL.createObjectURL(blob);
-      currentFilename = `${sanitizeFilename(rawTitle)}-vector.svg`;
-      return true;
-    } else {
-      currentCanvas = generateCodeSnapCanvas(activeRoot, currentResolution);
-      if (!currentCanvas) return false;
-      currentDataUrl = currentCanvas.toDataURL("image/png");
-      currentFilename = `${sanitizeFilename(rawTitle)}-${currentResolution}x.png`;
-      return true;
+    try {
+      currentCanvas = generateCodeSnapCanvas(activeRoot);
+    } catch (err) {
+      console.error("[Snapshot Render Error]", err);
+      showToast("⚠️ 生成快照时出错: " + (err?.message || "几何解析失败"));
+      return false;
     }
+    if (!currentCanvas) return false;
+
+    currentDataUrl = currentCanvas.toDataURL("image/png");
+    const rawTitle = (activeRoot?.text || docCtx?.tab?.title || "思维导图").trim();
+    currentFilename = `${sanitizeFilename(rawTitle)}-snap.png`;
+    return true;
   }
 
-  if (!renderSnapshot()) {
+  if (!renderSnapshotPreview()) {
     showToast("⚠️ 当前无可导出的导图内容");
     return;
   }
@@ -400,53 +318,42 @@ export function openSnapshotModal(explicitNode = null) {
   const subNodeText = isSubNode ? (primaryNode.text || "选中分支") : "";
 
   modal.innerHTML = `
-    <div class="apple-modal-card" style="width: 760px; max-width: 95vw; max-height: 92vh; gap: 12px; display: flex; flex-direction: column;">
+    <div class="apple-modal-card" style="width: 720px; max-width: 95vw; max-height: 90vh; gap: 12px; display: flex; flex-direction: column;">
       <div class="apple-modal-header" style="justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <div class="modal-header-icon primary" style="font-size: 18px;">📸</div>
           <div class="modal-title-wrap">
-            <h3 class="apple-modal-title">导出精美高清导图快照</h3>
-            <span style="font-size: 11.5px; color: var(--text-tertiary);">支持 2x/3x/4x 印刷级超采样位图 · 及无限放大绝不模糊的 SVG 矢量图</span>
+            <h3 class="apple-modal-title">导出精美导图快照</h3>
+            <span style="font-size: 11.5px; color: var(--text-tertiary);">画布底色与纹理还原 · 紧凑排版 · Retina 2x 高清渲染</span>
           </div>
         </div>
         <button id="btn-snap-close-x" class="inspector-close-btn" style="width: 28px; height: 28px;">✕</button>
       </div>
 
-      <!-- 导出选项工具条 (范围 / 格式 / 倍率) -->
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: rgba(0,0,0,0.025); border: 1px solid var(--border-subtle); padding: 8px 12px; border-radius: 12px;">
-        ${isSubNode ? `
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary);">范围:</span>
-            <div class="segmented-style-row" style="width: auto;">
-              <button id="snap-scope-branch" class="style-btn ${currentScope === 'branch' ? 'active' : ''}" style="padding: 3px 10px;">🎯 分支</button>
-              <button id="snap-scope-full" class="style-btn ${currentScope === 'full' ? 'active' : ''}" style="padding: 3px 10px;">🌐 全图</button>
-            </div>
-          </div>
-        ` : '<div></div>'}
-
-        <div style="display: flex; align-items: center; gap: 6px;">
-          <span style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary);">格式与精度:</span>
-          <div class="segmented-style-row" style="width: auto;">
-            <button class="style-btn snap-res-btn ${currentFormat === 'png' && currentResolution === 2 ? 'active' : ''}" data-fmt="png" data-res="2">2x Retina</button>
-            <button class="style-btn snap-res-btn ${currentFormat === 'png' && currentResolution === 3 ? 'active' : ''}" data-fmt="png" data-res="3">3x 超清</button>
-            <button class="style-btn snap-res-btn ${currentFormat === 'png' && currentResolution === 4 ? 'active' : ''}" data-fmt="png" data-res="4">4x 印刷级</button>
-            <button class="style-btn snap-res-btn ${currentFormat === 'svg' ? 'active' : ''}" data-fmt="svg" data-res="1" style="color: var(--apple-blue); font-weight: 700;">✨ SVG 矢量 (无限缩放)</button>
+      ${isSubNode ? `
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 2px;">
+          <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">导出范围:</span>
+          <div class="segmented-style-row" style="width: auto; max-width: 360px; display: inline-flex;">
+            <button id="snap-scope-branch" class="style-btn ${currentScope === 'branch' ? 'active' : ''}" style="padding: 4px 12px;">
+              🎯 分支「${escapeHtml(subNodeText)}」
+            </button>
+            <button id="snap-scope-full" class="style-btn ${currentScope === 'full' ? 'active' : ''}" style="padding: 4px 12px;">
+              🌐 完整导图全貌
+            </button>
           </div>
         </div>
-      </div>
+      ` : ''}
 
       <div class="apple-modal-body" style="flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; background: rgba(0,0,0,0.03); border-radius: 14px; padding: 14px; border: 1px solid var(--border-subtle);">
-        <img id="snap-preview-img" src="${currentDataUrl}" style="max-width: 100%; max-height: 50vh; border-radius: 8px; box-shadow: 0 12px 36px rgba(0,0,0,0.18); object-fit: contain;" alt="Snapshot Preview" />
+        <img id="snap-preview-img" src="${currentDataUrl}" style="max-width: 100%; max-height: 52vh; border-radius: 8px; box-shadow: 0 12px 36px rgba(0,0,0,0.18); object-fit: contain;" alt="Snapshot Preview" />
       </div>
 
       <div class="apple-modal-footer" style="justify-content: space-between; margin-top: 4px;">
-        <span id="snap-meta-size" style="font-size: 11.5px; color: var(--text-tertiary);">
-          ${currentFormat === 'svg' ? '格式: 纯数学矢量 SVG (无限放大零失真)' : `分辨率: ${currentCanvas.width} × ${currentCanvas.height} px (${currentResolution}x 超清)`}
-        </span>
+        <span id="snap-meta-size" style="font-size: 11.5px; color: var(--text-tertiary);">尺寸: ${currentCanvas.width / 2} × ${currentCanvas.height / 2} px (2x)</span>
         <div style="display: flex; gap: 10px;">
           <button id="btn-snap-cancel" class="modal-btn modal-btn-secondary">关闭</button>
           <button id="btn-snap-copy" class="modal-btn modal-btn-secondary" style="color: var(--apple-blue); font-weight: 600;">📋 复制图片</button>
-          <button id="btn-snap-save" class="modal-btn modal-btn-primary">💾 下载${currentFormat === 'svg' ? '矢量图' : '超清图'}</button>
+          <button id="btn-snap-save" class="modal-btn modal-btn-primary">💾 保存图片</button>
         </div>
       </div>
     </div>
@@ -462,77 +369,60 @@ export function openSnapshotModal(explicitNode = null) {
   modal.querySelector("#btn-snap-close-x")?.addEventListener("click", closeModal);
   modal.querySelector("#btn-snap-cancel")?.addEventListener("click", closeModal);
 
-  function updateModalUI() {
-    renderSnapshot();
+  function updateModalPreview() {
     const img = modal.querySelector("#snap-preview-img");
     const metaSize = modal.querySelector("#snap-meta-size");
-    const saveBtn = modal.querySelector("#btn-snap-save");
-
     if (img) img.src = currentDataUrl;
-    if (saveBtn) saveBtn.innerText = `💾 下载${currentFormat === 'svg' ? '矢量图 (SVG)' : '超清图'}`;
-    if (metaSize) {
-      metaSize.innerText = (currentFormat === 'svg')
-        ? '格式: 纯数学矢量 SVG (无限放大绝对清晰 · 适合打印排版)'
-        : `分辨率: ${currentCanvas.width} × ${currentCanvas.height} px (${currentResolution}x 超采样)`;
-    }
-
-    modal.querySelectorAll(".snap-res-btn").forEach(btn => {
-      const bFmt = btn.dataset.fmt;
-      const bRes = parseInt(btn.dataset.res, 10);
-      btn.classList.toggle("active", bFmt === currentFormat && (bFmt === "svg" || bRes === currentResolution));
-    });
+    if (metaSize && currentCanvas) metaSize.innerText = `尺寸: ${currentCanvas.width / 2} × ${currentCanvas.height / 2} px (2x)`;
+    modal.querySelector("#snap-scope-branch")?.classList.toggle("active", currentScope === "branch");
+    modal.querySelector("#snap-scope-full")?.classList.toggle("active", currentScope === "full");
   }
 
-  modal.querySelectorAll(".snap-res-btn").forEach(btn => {
-    btn.onclick = () => {
-      currentFormat = btn.dataset.fmt;
-      currentResolution = parseInt(btn.dataset.res, 10) || 2;
-      updateModalUI();
-    };
-  });
-
   modal.querySelector("#snap-scope-branch")?.addEventListener("click", () => {
-    currentScope = "branch";
-    updateModalUI();
-  });
-  modal.querySelector("#snap-scope-full")?.addEventListener("click", () => {
-    currentScope = "full";
-    updateModalUI();
+    if (currentScope !== "branch") {
+      currentScope = "branch";
+      if (renderSnapshotPreview()) updateModalPreview();
+    }
   });
 
-  // 1. 复制到剪贴板
-  modal.querySelector("#btn-snap-copy")?.addEventListener("click", () => {
-    if (currentFormat === "svg") {
-      navigator.clipboard.writeText(currentSvgStr).then(() => {
-        showToast("📋 已复制 SVG 矢量源码到剪贴板");
-        closeModal();
-      });
-      return;
+  modal.querySelector("#snap-scope-full")?.addEventListener("click", () => {
+    if (currentScope !== "full") {
+      currentScope = "full";
+      if (renderSnapshotPreview()) updateModalPreview();
     }
+  });
+
+  // 1. 复制到系统剪贴板
+  modal.querySelector("#btn-snap-copy")?.addEventListener("click", () => {
     if (!currentCanvas) return;
     currentCanvas.toBlob(async (blob) => {
       if (!blob) return;
       try {
         if (navigator.clipboard && window.ClipboardItem) {
           await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-          showToast(`📋 已复制 ${currentResolution}x 超清快照到剪贴板！`);
+          showToast("📋 已复制精美快照到剪贴板！");
           closeModal();
           return;
         }
-      } catch (err) {}
+      } catch (err) {
+        console.warn("[Snapshot] Clipboard write failed:", err);
+      }
       showToast("⚠️ 浏览器安全限制，请点击保存图片");
     }, "image/png");
   });
 
-  // 2. 保存文件
+  // 2. 保存图片文件
   modal.querySelector("#btn-snap-save")?.addEventListener("click", () => {
+    if (!currentDataUrl) return;
     const a = document.createElement("a");
     a.href = currentDataUrl;
     a.download = currentFilename;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => a.remove(), 100);
-    showToast(`💾 快照已成功保存: ${currentFilename}`);
+    showToast(`💾 快照已保存: ${currentFilename}`);
     closeModal();
   });
 }
+
+

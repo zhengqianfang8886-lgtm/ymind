@@ -1344,3 +1344,64 @@
   color: #38bdf8;
   border-color: rgba(56, 189, 248, 0.4);
 }
+
+
+/* ==========================================================================
+   ⚡ 内置高定开发者控制台 (Apple HIG In-App DevTools Drawer)
+   ========================================================================== */
+.apple-devtools-drawer {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  height: 320px;
+  max-height: 50vh;
+  z-index: 999999;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  box-shadow: 0 28px 80px -10px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: appleModalSpringIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.dev-header {
+  height: 38px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.dev-title-row { display: flex; align-items: center; gap: 8px; }
+.dev-tag { font-size: 10px; font-weight: 800; background: #0284c7; color: #fff; padding: 1.5px 6px; border-radius: 4px; }
+.dev-filter-tabs { display: flex; gap: 4px; }
+.dev-tab-btn { background: transparent; border: none; font-size: 11px; font-weight: 600; color: #94a3b8; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+.dev-tab-btn.active { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.dev-tool-btn { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); color: #cbd5e1; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+.dev-tool-btn:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+
+.dev-logs-body { flex: 1; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; }
+.dev-log-row { display: flex; align-items: flex-start; gap: 8px; padding: 3px 6px; border-radius: 4px; line-height: 1.45; word-break: break-all; }
+.dev-log-row.error { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+.dev-log-row.warn { background: rgba(245, 158, 11, 0.12); color: #fde047; }
+.dev-log-row.log { color: #cbd5e1; }
+.dev-log-time { color: #64748b; font-size: 10px; flex-shrink: 0; margin-top: 1px; }
+.dev-log-badge { font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 3px; flex-shrink: 0; }
+.error .dev-log-badge { background: #dc2626; color: #fff; }
+.warn .dev-log-badge { background: #d97706; color: #fff; }
+.log .dev-log-badge { background: rgba(255, 255, 255, 0.1); color: #94a3b8; }
+.dev-log-content { flex: 1; min-width: 0; }
+.dev-log-stack { margin-top: 3px; font-size: 10px; color: #f87171; white-space: pre-wrap; opacity: 0.9; }
+
+.dev-cli-bar { height: 32px; padding: 0 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; gap: 8px; background: rgba(0, 0, 0, 0.2); flex-shrink: 0; }
+.dev-prompt-symbol { color: #38bdf8; font-weight: 700; }
+.dev-eval-field { flex: 1; border: none; background: transparent; color: #fff; font-size: 11.5px; outline: none; font-family: inherit; }
