@@ -9,7 +9,7 @@ async function callTauri(cmd, args = {}) {
 let currentDir = "";
 let navHistory = [];
 let navHistoryIndex = -1;
-let systemPlaces = null;
+let cachedPlaces = null;
 let sortField = "name"; // "name" | "size" | "date"
 let sortAsc = true;
 let activeFilter = "all-mind"; // "all-mind" | "ymind" | "all"
@@ -26,11 +26,12 @@ function getRecentDirs() {
 }
 
 function recordRecentDir(dir) {
-  if (!dir || dir === "/") return;
+  if (!dir) return;
+  const clean = normalizePath(dir);
   try {
-    let list = getRecentDirs().filter(d => d !== dir);
-    list.unshift(dir);
-    if (list.length > 5) list.pop();
+    let list = getRecentDirs().filter(d => d !== clean);
+    list.unshift(clean);
+    if (list.length > 6) list.pop();
     localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(list));
   } catch {}
 }
@@ -46,22 +47,83 @@ function formatDate(sec) {
   if (!sec) return "--";
   const d = new Date(sec * 1000);
   const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-async function loadPlaces() {
-  if (systemPlaces) return systemPlaces;
+export function normalizePath(p) {
+  if (!p) return "/";
+  let clean = String(p).trim().replace(/\\+/g, "/").replace(/\/+/g, "/");
+
+  const isWindowsDrive = /^[a-zA-Z]:/i.test(clean);
+  if (isWindowsDrive) {
+    if (clean.length === 2) {
+      clean += "/";
+    }
+    if (clean.length > 3 && clean.endsWith("/")) {
+      clean = clean.slice(0, -1);
+    }
+    return clean;
+  }
+
+  if (!clean.startsWith("/")) {
+    clean = "/" + clean;
+  }
+  if (clean.length > 1 && clean.endsWith("/")) {
+    clean = clean.slice(0, -1);
+  }
+  return clean;
+}
+
+export function joinPath(parentDir, filename) {
+  const base = normalizePath(parentDir);
+  if (base.endsWith("/")) {
+    return base + filename;
+  }
+  return base + "/" + filename;
+}
+
+export function getParentDir(currentPath) {
+  const norm = normalizePath(currentPath);
+  const isWindowsDrive = /^[a-zA-Z]:/i.test(norm);
+
+  if (isWindowsDrive) {
+    if (norm.length <= 3) return norm;
+    const parts = norm.split("/").filter(Boolean);
+    parts.pop();
+    if (parts.length === 1) {
+      return parts[0] + "/";
+    }
+    return parts.join("/");
+  }
+
+  if (norm === "/") return "/";
+  const parts = norm.split("/").filter(Boolean);
+  parts.pop();
+  return "/" + parts.join("/");
+}
+
+async function loadPlacesAndDrives() {
+  if (cachedPlaces) return cachedPlaces;
   try {
-    systemPlaces = await callTauri("get_system_places");
-  } catch {
-    systemPlaces = {
+    cachedPlaces = await callTauri("get_system_places");
+  } catch (err) {
+    console.warn("[FilePicker] Failed to fetch system places from backend:", err);
+    cachedPlaces = {
       home: "/home",
       documents: "/home/Documents",
       desktop: "/home/Desktop",
-      downloads: "/home/Downloads"
+      downloads: "/home/Downloads",
+      drives: [
+        { name: "系统根 (/) ", path: "/", is_removable: false }
+      ]
     };
   }
-  return systemPlaces;
+
+  if (!cachedPlaces.drives || cachedPlaces.drives.length === 0) {
+    cachedPlaces.drives = [{ name: "系统盘", path: "/", is_removable: false }];
+  }
+
+  return cachedPlaces;
 }
 
 export async function openInAppFilePicker({ mode = "open", defaultName = "未命名导图.ymind", initialDir = "" } = {}) {
@@ -74,16 +136,57 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       document.body.appendChild(modal);
     }
 
-    const places = await loadPlaces();
-    if (initialDir && initialDir.startsWith("/")) {
-      currentDir = initialDir;
+    const sys = await loadPlacesAndDrives();
+
+    if (initialDir) {
+      currentDir = normalizePath(initialDir);
     } else if (!currentDir) {
-      currentDir = places.documents || places.home || "/";
+      currentDir = normalizePath(sys.documents || sys.home || sys.drives[0]?.path || "/");
     }
 
     navHistory = [currentDir];
     navHistoryIndex = 0;
     recordRecentDir(currentDir);
+
+    function formatDriveDisplay(drive) {
+      const rawName = drive.name || "本地存储";
+      const match = rawName.match(/^(.*?)\s*\((.*?)\)$/);
+      if (match) {
+        return {
+          main: match[1].trim(),
+          sub: match[2].trim()
+        };
+      }
+      return { main: rawName, sub: "" };
+    }
+
+    const drivesListHtml = sys.drives.map(drive => {
+      const { main, sub } = formatDriveDisplay(drive);
+      const isRemovable = Boolean(drive.is_removable);
+      return `
+        <div class="fp-place-item" data-path="${escapeHtml(normalizePath(drive.path))}" title="${escapeHtml(drive.path)}">
+          <span class="fp-place-icon-box ${isRemovable ? 'removable' : 'disk'}">
+            ${isRemovable ? `
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="3"></rect>
+                <circle cx="12" cy="12" r="3"></circle>
+                <line x1="12" y1="1" x2="12" y2="4"></line>
+              </svg>
+            ` : `
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="20" height="13" rx="2"></rect>
+                <path d="M6 19h12M10 16v3M14 16v3"></path>
+              </svg>
+            `}
+          </span>
+          <span class="fp-place-label">
+            <span>${escapeHtml(main)}</span>
+            ${sub ? `<span class="fp-place-subtext">(${escapeHtml(sub)})</span>` : ""}
+          </span>
+          ${sub && sub.endsWith(":") ? `<span class="fp-drive-tag">${escapeHtml(sub)}</span>` : ""}
+        </div>
+      `;
+    }).join("");
 
     modal.innerHTML = `
       <div class="apple-modal-card apple-file-picker-card">
@@ -147,36 +250,51 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
 
         <div class="fp-body">
           <aside class="fp-sidebar">
-            <div class="fp-sidebar-title">位置</div>
-            <div class="fp-place-item" data-path="${escapeHtml(places.home)}">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-              <span>主目录</span>
-            </div>
-            ${places.documents ? `
-              <div class="fp-place-item" data-path="${escapeHtml(places.documents)}">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                <span>文稿</span>
-              </div>
-            ` : ""}
-            ${places.desktop ? `
-              <div class="fp-place-item" data-path="${escapeHtml(places.desktop)}">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                <span>桌面</span>
-              </div>
-            ` : ""}
-            ${places.downloads ? `
-              <div class="fp-place-item" data-path="${escapeHtml(places.downloads)}">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                <span>下载</span>
-              </div>
-            ` : ""}
-            <div class="fp-place-item" data-path="/">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-              <span>系统盘 (/)</span>
+            <div class="fp-sidebar-group">
+              <div class="fp-sidebar-title">驱动器与设备</div>
+              ${drivesListHtml}
             </div>
 
-            <div class="fp-sidebar-title" style="margin-top:8px;">最近使用</div>
-            <div id="fp-recent-places-list" style="display:flex;flex-direction:column;gap:1px;"></div>
+            <div class="fp-sidebar-group">
+              <div class="fp-sidebar-title">常用位置</div>
+              ${sys.desktop ? `
+                <div class="fp-place-item" data-path="${escapeHtml(normalizePath(sys.desktop))}">
+                  <span class="fp-place-icon-box">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  </span>
+                  <span class="fp-place-label">桌面</span>
+                </div>
+              ` : ""}
+              ${sys.documents ? `
+                <div class="fp-place-item" data-path="${escapeHtml(normalizePath(sys.documents))}">
+                  <span class="fp-place-icon-box">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                  </span>
+                  <span class="fp-place-label">文稿</span>
+                </div>
+              ` : ""}
+              ${sys.downloads ? `
+                <div class="fp-place-item" data-path="${escapeHtml(normalizePath(sys.downloads))}">
+                  <span class="fp-place-icon-box">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  </span>
+                  <span class="fp-place-label">下载</span>
+                </div>
+              ` : ""}
+              ${sys.home ? `
+                <div class="fp-place-item" data-path="${escapeHtml(normalizePath(sys.home))}">
+                  <span class="fp-place-icon-box">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+                  </span>
+                  <span class="fp-place-label">个人目录</span>
+                </div>
+              ` : ""}
+            </div>
+
+            <div class="fp-sidebar-group">
+              <div class="fp-sidebar-title">最近访问</div>
+              <div id="fp-recent-places-list" style="display:flex;flex-direction:column;gap:2px;"></div>
+            </div>
           </aside>
 
           <main class="fp-content-area">
@@ -201,10 +319,10 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
               <span style="font-size:12px;font-weight:600;color:var(--text-secondary);flex-shrink:0;">保存为:</span>
               <input id="fp-filename-input" class="apple-modal-input" style="padding:6px 12px;font-size:12.5px;font-weight:600;max-width:320px;" value="${escapeHtml(defaultName)}" />
             ` : `
-              <span style="font-size:11.5px;color:var(--text-tertiary);flex-shrink:0;">显示范围:</span>
-              <button class="fp-filter-pill active" data-filter="all-mind">思维导图 (*.ymind; *.xmind)</button>
+              <span style="font-size:11.5px;color:var(--text-tertiary);flex-shrink:0;">文件格式:</span>
+              <button class="fp-filter-pill active" data-filter="all-mind">全部思维导图 (*.ymind; *.xmind)</button>
               <button class="fp-filter-pill" data-filter="ymind">仅 YMind 原生 (*.ymind)</button>
-              <button class="fp-filter-pill" data-filter="all">所有文件</button>
+              <button class="fp-filter-pill" data-filter="all">所有文件 (*.*)</button>
             `}
           </div>
           <div style="display:flex;gap:10px;flex-shrink:0;">
@@ -272,7 +390,6 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       };
     });
 
-    // 列头排序响应
     modal.querySelectorAll(".fp-th-col").forEach(col => {
       col.onclick = () => {
         const field = col.dataset.sort;
@@ -291,11 +408,7 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       ["name", "date", "size"].forEach(f => {
         const icon = modal.querySelector(`#sort-icon-${f}`);
         if (!icon) return;
-        if (sortField === f) {
-          icon.innerText = sortAsc ? " ▲" : " ▼";
-        } else {
-          icon.innerText = "";
-        }
+        icon.innerText = (sortField === f) ? (sortAsc ? " ▲" : " ▼") : "";
       });
     }
 
@@ -304,11 +417,14 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       if (!box) return;
       const recents = getRecentDirs();
       box.innerHTML = recents.map(r => {
-        const shortName = r.split(/[\\/]/).filter(Boolean).pop() || r;
+        const parts = r.split("/").filter(Boolean);
+        const shortName = parts.pop() || r;
         return `
           <div class="fp-place-item" data-path="${escapeHtml(r)}" title="${escapeHtml(r)}">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
-            <span>${escapeHtml(shortName)}</span>
+            <span class="fp-place-icon-box" style="color: #8b5cf6;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            </span>
+            <span class="fp-place-label">${escapeHtml(shortName)}</span>
           </div>
         `;
       }).join("");
@@ -318,7 +434,6 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       });
     }
 
-    // 路径直达输入与面包屑切换
     addressBox.onclick = (e) => {
       if (e.target.closest(".fp-breadcrumb-crumb")) return;
       breadcrumbBox.classList.add("hidden");
@@ -348,7 +463,9 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
     function updateNavButtons() {
       btnBack.disabled = navHistoryIndex <= 0;
       btnFwd.disabled = navHistoryIndex >= navHistory.length - 1;
-      btnUp.disabled = currentDir === "/" || !currentDir.includes("/");
+
+      const isWin = /^[a-zA-Z]:/i.test(currentDir);
+      btnUp.disabled = isWin ? (currentDir.length <= 3) : (currentDir === "/");
     }
 
     btnBack.onclick = () => {
@@ -365,11 +482,11 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
         refreshView();
       }
     };
+
     function goUp() {
-      const parts = currentDir.split("/").filter(Boolean);
-      if (parts.length > 0) {
-        parts.pop();
-        navigateTo("/" + parts.join("/"));
+      const parent = getParentDir(currentDir);
+      if (parent !== currentDir) {
+        navigateTo(parent);
       }
     }
     btnUp.onclick = goUp;
@@ -384,7 +501,7 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
         defaultValue: "新建文件夹"
       });
       if (folderName && folderName.trim()) {
-        const fullDir = (currentDir === "/" ? "" : currentDir) + "/" + folderName.trim();
+        const fullDir = joinPath(currentDir, folderName.trim());
         try {
           await callTauri("create_directory", { dirPath: fullDir });
           showToast(`📁 文件夹已创建: ${folderName.trim()}`);
@@ -396,23 +513,8 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       }
     };
 
-    function normalizeSystemPath(p) {
-      if (!p) return "/";
-      let clean = String(p).trim().replace(/\\+/g, "/").replace(/\/+/g, "/");
-      const isWindowsDisk = /^[a-zA-Z]:/i.test(clean);
-      if (!isWindowsDisk && !clean.startsWith("/")) {
-        clean = "/" + clean;
-      }
-      if (clean.length > 1 && clean.endsWith("/")) {
-        if (!isWindowsDisk || clean.length > 3) {
-          clean = clean.slice(0, -1);
-        }
-      }
-      return clean;
-    }
-
     function navigateTo(targetPath, recordHistory = true) {
-      currentDir = normalizeSystemPath(targetPath);
+      currentDir = normalizePath(targetPath);
       recordRecentDir(currentDir);
       if (recordHistory) {
         if (navHistoryIndex < navHistory.length - 1) navHistory.splice(navHistoryIndex + 1);
@@ -425,36 +527,63 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
     function renderBreadcrumbs() {
       breadcrumbBox.innerHTML = "";
       const isWin = /^[a-zA-Z]:/i.test(currentDir);
-      const parts = currentDir.split(/[\\/]/).filter(Boolean);
-      let accPath = "";
+      const parts = currentDir.split("/").filter(Boolean);
 
-      const rootCrumb = document.createElement("span");
-      rootCrumb.className = `fp-breadcrumb-crumb ${parts.length === 0 ? "current" : ""}`;
-      rootCrumb.innerText = isWin ? (parts[0] || "本地磁盘") : "/";
-      rootCrumb.onclick = () => navigateTo(isWin ? (parts[0] + "/") : "/");
-      breadcrumbBox.appendChild(rootCrumb);
+      if (isWin) {
+        const driveLetter = parts[0];
+        const driveCrumb = document.createElement("span");
+        driveCrumb.className = `fp-breadcrumb-crumb ${parts.length === 1 ? "current" : ""}`;
+        driveCrumb.innerText = `${driveLetter}/`;
+        driveCrumb.onclick = () => navigateTo(`${driveLetter}/`);
+        breadcrumbBox.appendChild(driveCrumb);
 
-      const startIndex = isWin ? 1 : 0;
-      accPath = isWin ? parts[0] : "";
+        let acc = `${driveLetter}/`;
+        for (let i = 1; i < parts.length; i++) {
+          const p = parts[i];
+          acc = joinPath(acc, p);
+          const target = acc;
 
-      for (let idx = startIndex; idx < parts.length; idx++) {
-        const p = parts[idx];
-        accPath += "/" + p;
-        const target = accPath;
+          const sep = document.createElement("span");
+          sep.className = "fp-breadcrumb-sep";
+          sep.innerText = "›";
+          breadcrumbBox.appendChild(sep);
 
-        const sep = document.createElement("span");
-        sep.className = "fp-breadcrumb-sep";
-        sep.innerText = "›";
-        breadcrumbBox.appendChild(sep);
-
-        const crumb = document.createElement("span");
-        crumb.className = `fp-breadcrumb-crumb ${idx === parts.length - 1 ? "current" : ""}`;
-        crumb.innerText = p;
-        if (idx !== parts.length - 1) {
-          crumb.onclick = () => navigateTo(target);
+          const crumb = document.createElement("span");
+          crumb.className = `fp-breadcrumb-crumb ${i === parts.length - 1 ? "current" : ""}`;
+          crumb.innerText = p;
+          if (i !== parts.length - 1) {
+            crumb.onclick = () => navigateTo(target);
+          }
+          breadcrumbBox.appendChild(crumb);
         }
-        breadcrumbBox.appendChild(crumb);
+      } else {
+        const rootCrumb = document.createElement("span");
+        rootCrumb.className = `fp-breadcrumb-crumb ${parts.length === 0 ? "current" : ""}`;
+        rootCrumb.innerText = "/";
+        rootCrumb.onclick = () => navigateTo("/");
+        breadcrumbBox.appendChild(rootCrumb);
+
+        let acc = "";
+        for (let i = 0; i < parts.length; i++) {
+          const p = parts[i];
+          acc += "/" + p;
+          const target = acc;
+
+          const sep = document.createElement("span");
+          sep.className = "fp-breadcrumb-sep";
+          sep.innerText = "›";
+          breadcrumbBox.appendChild(sep);
+
+          const crumb = document.createElement("span");
+          crumb.className = `fp-breadcrumb-crumb ${i === parts.length - 1 ? "current" : ""}`;
+          crumb.innerText = p;
+          if (i !== parts.length - 1) {
+            crumb.onclick = () => navigateTo(target);
+          }
+          breadcrumbBox.appendChild(crumb);
+        }
       }
+
       breadcrumbBox.scrollLeft = breadcrumbBox.scrollWidth;
     }
 
@@ -465,15 +594,15 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
       selectedEntry = null;
 
       modal.querySelectorAll(".fp-place-item").forEach(p => {
-        p.classList.toggle("active", p.dataset.path === currentDir);
+        p.classList.toggle("active", normalizePath(p.dataset.path) === currentDir);
       });
 
-      listContainer.innerHTML = `<div style="padding:28px 0;text-align:center;color:var(--text-tertiary);font-size:12.5px;">正在加载目录内容...</div>`;
+      listContainer.innerHTML = `<div style="padding:32px 0;text-align:center;color:var(--text-tertiary);font-size:12.5px;">正在加载目录内容...</div>`;
       try {
         currentEntries = await callTauri("list_directory", { dirPath: currentDir });
         renderList();
       } catch (err) {
-        listContainer.innerHTML = `<div style="padding:28px 12px;text-align:center;color:var(--apple-red);font-size:12.5px;">无法访问该目录: ${escapeHtml(String(err))}</div>`;
+        listContainer.innerHTML = `<div style="padding:32px 16px;text-align:center;color:var(--apple-red);font-size:12.5px;">无法访问该目录: ${escapeHtml(String(err))}</div>`;
       }
     }
 
@@ -574,7 +703,7 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
           showToast("⚠️ 请选择一个要打开的思维导图文件");
           return;
         }
-        closePicker({ path: selectedEntry.path, name: selectedEntry.name });
+        closePicker({ path: normalizePath(selectedEntry.path), name: selectedEntry.name });
       } else {
         let name = filenameInput?.value.trim() || "";
         if (!name) {
@@ -585,7 +714,7 @@ export async function openInAppFilePicker({ mode = "open", defaultName = "未命
         if (!name.endsWith(".ymind") && !name.endsWith(".json")) {
           name += ".ymind";
         }
-        const full = (currentDir === "/" ? "" : currentDir) + "/" + name;
+        const full = joinPath(currentDir, name);
         closePicker({ path: full, name });
       }
     }

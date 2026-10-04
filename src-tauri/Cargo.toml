@@ -5,6 +5,11 @@ description = "YMind Pro - Apple-styled Mind Mapping & Outliner Studio"
 authors = ["Your Name"]
 edition = "2021"
 
+# 🌟 加上这一段：强制指定只有单一 bin，彻底关闭默认的 lib 机制
+[[bin]]
+name = "ymind-pro"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
