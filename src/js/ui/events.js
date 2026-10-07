@@ -460,7 +460,7 @@ export function initEventListeners(renderApp) {
       }
 
       if (node.note && node._noteRect &&
-          worldX >= node._noteRect.x - 3 && worldX <= node._noteRect.x + node._noteRect.width + 3 &&
+          worldX >= node._noteRect.x - 8 && worldX <= node._noteRect.x + node._noteRect.width + 8 &&
           worldY >= node._noteRect.y - 3 && worldY <= node._noteRect.y + node._noteRect.height + 3) {
         e.preventDefault();
         openNotesDrawer(node);

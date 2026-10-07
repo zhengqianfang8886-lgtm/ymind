@@ -150,7 +150,7 @@ export function saveSessionSyncFallback() {
         title: tab.title,
         filePath: tab.filePath || null,
         isDirty: Boolean(tab.isDirty),
-        mindData: tab.mindData,
+        mindData: null, // 🔒 物理阻断：严禁在 LocalStorage 存储明文导图数据
         focusedRootId: tab.focusedRootId || "root",
         layoutStructure: tab.layoutStructure || "mindmap",
         colorPalette: tab.colorPalette || "apple-classic",
@@ -280,6 +280,9 @@ export async function restoreSession() {
       ? raw.activeTabId
       : validTabs[0].id;
     state.isLayoutDirty = true;
+
+    // 🌟 启动合规治理：物理清洗老版本残留的所有不合规孤儿快照
+    import("./idb.js").then(m => m.idbPruneOrphanSnapshots(validTabs)).catch(() => {});
     return true;
   } catch (e) {
     console.warn("[HotExit] Failed to hydrate workspace session:", e);
@@ -294,6 +297,8 @@ export async function clearSession() {
   }
   localStorage.removeItem(HOT_EXIT_KEY + "_SYNC");
   await idbDeleteDraft(HOT_EXIT_KEY);
+  // 🌟 会话清空时，同步粉碎快照库全部孤儿记录
+  import("./idb.js").then(m => m.idbPruneOrphanSnapshots([])).catch(() => {});
 }
 
 bus.on(EVENTS.CONFIG_CHANGE, scheduleSessionSave);

@@ -108,11 +108,16 @@ function renderApp() {
     const outlinerView = document.getElementById("outliner-view");
     const btnMind = document.getElementById("btn-mode-mindmap");
     const btnOut = document.getElementById("btn-mode-outliner");
+    const nodeActionDock = document.getElementById("node-action-dock");
 
+    // 🌟 核心收敛：锁定状态严格执行完全锁屏隔离
     if (curTab?.isEncrypted && curTab?._isLocked) {
       outlinerView?.classList.add("hidden");
       viewport?.classList.remove("hidden");
       closeNotesDrawer();
+      nodeActionDock?.classList.add("hidden"); // 隐藏添加节点等编辑按钮
+      document.getElementById("format-sidebar")?.classList.add("collapsed"); // 收起右侧检查器
+
       if (viewport) {
         const c = document.getElementById("canvas-main");
         if (c) {
@@ -122,6 +127,9 @@ function renderApp() {
       }
       showLockScreen(curTab);
       return;
+    } else {
+      // 正常非锁定状态：恢复 Action Dock
+      nodeActionDock?.classList.remove("hidden");
     }
 
     const docCtx = getActiveDocumentContext();
@@ -152,7 +160,6 @@ function renderApp() {
         },
         onRequestTransform: requestTransformUpdate
       });
-      // 🌟 核心保底：每次重绘应用时无条件同步侧边栏，杜绝非鼠标选区变更后的僵尸状态
       syncInspectorUi();
     }
   } catch (err) {
@@ -206,12 +213,11 @@ bus.on(EVENTS.TRANSFORM_CHANGE, (transform) => {
 });
 
 document.getElementById("btn-back-home")?.addEventListener("click", showHome);
-// 🌟 深度打磨：导图 ↔ 大纲空间连贯性切换与焦点无缝交接
+
 document.getElementById("btn-mode-mindmap")?.addEventListener("click", async () => {
   const t = getActiveTab();
   if (!t || t.viewMode === "mindmap") return;
 
-  // 拾取大纲当前焦点节点，反向同步至导图选中态
   const activeRow = document.activeElement?.closest?.(".outliner-row");
   const targetId = activeRow?.dataset?.id || t._lastFocusedId;
   const docCtx = getActiveDocumentContext();
@@ -230,7 +236,6 @@ document.getElementById("btn-mode-mindmap")?.addEventListener("click", async () 
   resizeCanvas(true);
   renderApp();
 
-  // 相机启动 Apple 弹簧曲线平滑推镜回正
   const { smartAdaptiveCenter } = await import("./js/core/camera.js");
   const targetNode = targetId && docCtx ? (findNode(targetId, docCtx.mindData) || null) : null;
   smartAdaptiveCenter(targetNode, true, docCtx);
@@ -248,7 +253,6 @@ document.getElementById("btn-mode-outliner")?.addEventListener("click", () => {
   if (!t || t._isLocked || t.viewMode === "outliner") return;
   closeNotesDrawer();
 
-  // 捕获导图当前选中的节点作为大纲直达目标
   const docCtx = getActiveDocumentContext();
   const activeNodeId = docCtx?.primarySelectedNode?.id;
   if (activeNodeId) t._lastFocusedId = activeNodeId;
@@ -265,6 +269,7 @@ document.getElementById("btn-mode-outliner")?.addEventListener("click", () => {
     renderApp();
   });
 });
+
 document.getElementById("btn-export-snap")?.addEventListener("click", () => {
   import("./js/ui/snapshot.js").then(m => m.openSnapshotModal());
 });
@@ -429,7 +434,6 @@ document.getElementById("btn-theme-toggle-home")?.addEventListener("click", togg
     syncInspectorUi();
   }
   showHome();
-  // 🌟 自动唤醒 WebView2 / WebKit 首帧合成，彻底消除启动黑屏
   requestAnimationFrame(() => {
     window.dispatchEvent(new Event("resize"));
     setTimeout(() => {

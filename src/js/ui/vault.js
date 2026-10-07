@@ -3,7 +3,7 @@ import { camera } from "../core/camera.js";
 import { renderTabBar } from "../core/tab-manager.js";
 import { state, getActiveTab, closeTab, saveSnapshot, sanitizeTreeForHistory } from "../core/state.js";
 import { encryptMindPayload, decryptMindPayload, evaluatePasswordStrength } from "../storage/crypto.js";
-import { showToast } from "./dialog.js";
+import { showToast, appConfirm } from "./dialog.js";
 import { bus, EVENTS } from "../core/event-bus.js";
 
 let renderAppRef = null;
@@ -54,7 +54,14 @@ export function openVaultSetModal() {
 }
 
 export function closeVaultSetModal() {
-  document.getElementById("apple-vault-set-modal")?.classList.add("hidden");
+  const modalSet = document.getElementById("apple-vault-set-modal");
+  if (modalSet) {
+    modalSet.classList.add("hidden");
+    const passInput = modalSet.querySelector("#vault-set-pass");
+    const passConfirm = modalSet.querySelector("#vault-set-pass-confirm");
+    if (passInput) passInput.value = "";
+    if (passConfirm) passConfirm.value = "";
+  }
 }
 
 async function handleSaveVaultSettings() {
@@ -84,10 +91,12 @@ async function handleSaveVaultSettings() {
     tab._isLocked = false;
     tab.versions = [];
 
-    // 🌟 安全防线：启用密码保险箱时，物理销毁本地数据库中该文档的所有历史明文快照
+    // 🌟 启用密码保险箱时，物理销毁本地数据库中该文档的所有历史明文快照
     try {
-      const { idbDeleteSnapshotsByTitle } = await import("../storage/idb.js");
-      await idbDeleteSnapshotsByTitle(tab.title);
+      const { idbDeleteSnapshotsByTarget } = await import("../storage/idb.js");
+      await idbDeleteSnapshotsByTarget(tab.title, tab.filePath);
+      // 🌟 同步物理擦除 LocalStorage 与历史会话，防止明文残留
+      localStorage.removeItem("WORKSPACE_HOT_EXIT_SESSION_V1_SYNC");
     } catch {}
 
     const vault = await encryptMindPayload(tab.mindData, p1, hint);
@@ -97,8 +106,27 @@ async function handleSaveVaultSettings() {
     saveSnapshot(tab);
     closeVaultSetModal();
     updateSecurityDockStatus();
+
+    // 🌟 关键引导：如果当前加密的文档尚未落盘（草稿状态），强提示并引导另存为物理文件
+    if (!tab.filePath) {
+      showToast("🛡️ 已启用保险箱！请及时保存为本地文件以防意外丢失");
+      setTimeout(async () => {
+        const ok = await appConfirm({
+          title: "建议立即保存保密文件",
+          message: "检测到当前文档尚未保存为本地文件。保密草稿若未保存到硬盘，关闭软件时容易遗忘密码导致数据丢失。是否现在立即保存为文件？",
+          confirmText: "立即保存",
+          cancelText: "稍后手动保存"
+        });
+        if (ok) {
+          const { performSave } = await import("./events.js");
+          await performSave(tab);
+        }
+      }, 500);
+    } else {
+      showToast("🛡️ 已启用 Argon2id + AES-256 密码保险箱！");
+    }
+
     if (typeof renderAppRef === "function") renderAppRef(); else bus.emit(EVENTS.RENDER_APP);
-    showToast("🛡️ 已启用 Argon2id + AES-256 密码保险箱！");
   } finally {
     if (btnSaveSet) {
       btnSaveSet.innerText = "启用保险箱保护";
@@ -124,6 +152,9 @@ function handleDisableVault() {
   showToast("🔓 已解除加密保护，导图恢复为标准明文存储");
 }
 
+/**
+ * 🌟 深度脱水与全面锁屏（Zero-Leakage Lock Pipeline）
+ */
 export async function lockCurrentTab() {
   const tab = getActiveTab();
   if (!tab || !tab.isEncrypted) {
@@ -131,13 +162,12 @@ export async function lockCurrentTab() {
     return;
   }
 
-  // 🌟 BUG-05 防御：锁定前进行严格重加密确认，加密未就绪前坚决禁止粉碎内存中的明文树
+  // 1. 严格重加密封包，确保修改完整封存至密文中
   if (tab.mindData && !tab._isLocked) {
     if (tab.password) {
       try {
         tab.encryptedVault = await encryptMindPayload(tab.mindData, tab.password, tab.passwordHint || "");
       } catch (err) {
-        console.error("[Vault] Re-encryption failed before locking:", err);
         showToast("⚠️ 加密暂存失败，已中止锁定以防数据丢失");
         return;
       }
@@ -147,16 +177,42 @@ export async function lockCurrentTab() {
     }
   }
 
+  // 2. 内存模型数据物理置换
   tab.mindData = { id: "root", text: "🔒 导图已锁定", children: [] };
   tab.password = null;
-  // 🛡️ 物理粉碎撤销/重做命令栈，杜绝锁屏后按 ⌘Z 穿透恢复明文
   tab.historyStack = [];
   tab.historyIndex = -1;
   delete tab.history;
   tab._isLocked = true;
-  state.clipboardBranch = null;
 
-  // 🛡️ 物理清理关联组件残存内存
+  // 3. 【防线 1】：物理粉碎剪贴板
+  state.clipboardBranch = null;
+  state.clipboardBranches = null;
+
+  // 4. 【防线 2】：大纲视图物理脱水
+  try {
+    const { clearOutlinerDOM } = await import("../render/outliner.js");
+    clearOutlinerDOM();
+  } catch {
+    const outlinerContent = document.getElementById("outliner-content");
+    if (outlinerContent) outlinerContent.innerHTML = "";
+  }
+
+  // 5. 【防线 3】：3D 抽认卡工坊模块变量物理置空
+  try {
+    const { clearCardDeck } = await import("./flashcards.js");
+    clearCardDeck();
+  } catch {}
+
+  // 6. 【防线 4】：搜索组件与输入框物理脱敏
+  try {
+    const { closeSearch } = await import("./search.js");
+    closeSearch();
+    const searchInput = document.getElementById("search-input");
+    if (searchInput) searchInput.value = "";
+  } catch {}
+
+  // 7. 【防线 5】：备注抽屉与行内编辑器物理擦空
   try {
     const { closeNotesDrawer } = await import("./notes.js");
     closeNotesDrawer();
@@ -166,16 +222,23 @@ export async function lockCurrentTab() {
     if (preview) preview.innerHTML = "";
   } catch {}
 
-  try {
-    const { closeSearch } = await import("./search.js");
-    closeSearch();
-  } catch {}
+  const inlineEditor = document.getElementById("inline-editor");
+  if (inlineEditor) {
+    inlineEditor.value = "";
+    inlineEditor.classList.add("hidden");
+  }
+  state.editingNodeId = null;
 
-  // 物理擦除 Canvas 帧缓冲残影
+  // 8. 【防线 6】：清空 Canvas 画面与小地图显存帧缓冲
   const canvas = document.getElementById("canvas-main");
   if (canvas) {
     const ctx = canvas.getContext("2d");
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  const interactiveCanvas = document.getElementById("canvas-interactive");
+  if (interactiveCanvas) {
+    const ictx = interactiveCanvas.getContext("2d");
+    if (ictx) ictx.clearRect(0, 0, interactiveCanvas.width, interactiveCanvas.height);
   }
   const minimap = document.getElementById("minimap-canvas");
   if (minimap) {
@@ -183,9 +246,14 @@ export async function lockCurrentTab() {
     if (mctx) mctx.clearRect(0, 0, minimap.width, minimap.height);
   }
 
+  // 9. 隐藏中间操作岛和检查器，直接唤出居中解锁海报
+  document.getElementById("node-action-dock")?.classList.add("hidden");
+  document.getElementById("format-sidebar")?.classList.add("collapsed");
+
   showLockScreen(tab);
   updateSecurityDockStatus();
-  showToast("🔒 画布、剪贴板与显存残影已安全锁定");
+  renderTabBar();
+
   try {
     const { saveSessionImmediate } = await import("../storage/session.js");
     saveSessionImmediate();
@@ -213,16 +281,29 @@ export function showLockScreen(tab) {
   }
 
   errorMsg?.classList.add("hidden");
+  
+  // 🌟 确保锁屏弹窗在最顶层且处于 flex 居中状态
+  lockScreen.classList.remove("hidden");
+  lockScreen.style.display = "flex";
+  lockScreen.style.zIndex = "9500";
+
+  // 隐藏顶部干扰操作条
+  document.getElementById("node-action-dock")?.classList.add("hidden");
+
   if (posterPass) {
     posterPass.value = "";
-    setTimeout(() => posterPass.focus(), 50);
+    setTimeout(() => posterPass.focus(), 60);
   }
-  lockScreen.classList.remove("hidden");
   updateSecurityDockStatus();
 }
 
 export function hideLockScreen() {
-  document.getElementById("canvas-vault-lock-screen")?.classList.add("hidden");
+  const lockScreen = document.getElementById("canvas-vault-lock-screen");
+  if (lockScreen) {
+    lockScreen.classList.add("hidden");
+    lockScreen.style.setProperty("display", "none", "important");
+  }
+  document.getElementById("node-action-dock")?.classList.remove("hidden");
 }
 export const hideLockScreenDOM = hideLockScreen;
 
@@ -245,6 +326,7 @@ export function initVaultManager(renderApp) {
     modalSet.querySelector("#btn-vault-set-save")?.addEventListener("click", handleSaveVaultSettings);
     modalSet.querySelector("#btn-vault-disable")?.addEventListener("click", handleDisableVault);
   }
+
   const btnSecurity = document.getElementById("btn-toggle-security");
   const posterBox = document.getElementById("vault-poster-box");
   const posterPass = document.getElementById("vault-poster-password");
@@ -261,7 +343,6 @@ export function initVaultManager(renderApp) {
   async function handleCloseLockedDoc() {
     const curTab = getActiveTab();
     if (!curTab) return;
-    // 🌟 P0-3 防御：接入完整未保存提示确认管道，杜绝直接物理销毁未落盘的加密文档草稿
     const { closeTabWithConfirm } = await import("../core/tab-manager.js");
     await closeTabWithConfirm(curTab.id, renderAppRef, () => bus.emit(EVENTS.SHOW_HOME));
   }
@@ -308,8 +389,17 @@ export function initVaultManager(renderApp) {
 
       btnPosterUnlock.innerText = "➔";
       btnPosterUnlock.disabled = false;
+      
+      // 🌟 标记布局更新并强制物理清除锁定层
+      tab._isLocked = false;
+      tab.isLayoutDirty = true;
+      state.isLayoutDirty = true;
       hideLockScreen();
+
       showToast("🔓 验签成功，已解密展开导图！");
+      
+      renderTabBar();
+      if (tab.spatialIndex) tab.spatialIndex.clear();
       if (typeof renderAppRef === "function") renderAppRef(); else bus.emit(EVENTS.RENDER_APP);
     } catch (err) {
       btnPosterUnlock.innerText = "➔";

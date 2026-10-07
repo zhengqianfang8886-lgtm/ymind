@@ -139,6 +139,7 @@
   gap: 2px;
   flex-shrink: 1;
   min-width: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .dock-btn {
   display: inline-flex;
@@ -301,10 +302,8 @@
 }
 
 /* ==========================================================================
-   📱 顶级 macOS 响应式分屏与半屏自适应排版体系 (Split-View Responsive Architecture)
+   📱 顶级 macOS 响应式分屏与半屏自适应排版体系
    ========================================================================== */
-
-/* 宽屏优化 (<= 1280px): 紧缩内边距与间隙 */
 @media (max-width: 1280px) {
   .ymind-top-bar {
     padding: 0 10px;
@@ -315,7 +314,6 @@
   }
 }
 
-/* 阶梯 1 (<= 1140px): 右侧胶囊文本收拢，转为紧凑矢量微胶囊 */
 @media (max-width: 1140px) {
   .dock-capsule-btn {
     padding: 0 7px;
@@ -332,20 +330,17 @@
   }
 }
 
-/* 阶梯 2 (<= 980px，经典 50% 半屏分屏核心态): */
 @media (max-width: 980px) {
   .ymind-top-bar {
     padding: 0 8px;
     gap: 4px;
   }
-  /* 隐藏分段控制器文字，转换为精致单色图标模式 */
   .seg-text {
     display: none;
   }
   .seg-btn {
     padding: 5px 7px;
   }
-  /* 操作岛收紧快捷键指示方块，保证中间不冲突 */
   .dock-kbd {
     display: none;
   }
@@ -353,7 +348,6 @@
     padding: 4px 6px;
     gap: 2px;
   }
-  /* 保存按钮转为图标态 */
   .save-btn-text {
     display: none;
   }
@@ -361,16 +355,13 @@
     padding: 0 8px;
     width: 28px;
   }
-  /* 隐藏非高频分割线 */
   .top-bar-divider:nth-of-type(2),
   .top-bar-divider:nth-of-type(3) {
     display: none;
   }
 }
 
-/* 阶梯 3 (<= 820px，极窄分屏/小尺寸窗口): */
 @media (max-width: 820px) {
-  /* 操作岛收起辅助文字，仅保留核心符号 */
   .dock-btn-text {
     display: none;
   }
@@ -379,7 +370,6 @@
     min-width: 26px;
     justify-content: center;
   }
-  /* 隐藏极低频次要按钮 (时光机、设置，用户可通过快捷键或首页随时唤出) */
   #btn-open-history,
   #btn-open-settings {
     display: none;
@@ -389,7 +379,6 @@
   }
 }
 
-/* 标签栏同步半屏优化 */
 @media (max-width: 980px) {
   .apple-tab-bar {
     padding: 0 8px;
@@ -404,20 +393,20 @@
 }
 
 /* ==========================================================================
-   🌟 紧凑联动标签栏体系（彻底消除幽灵空白，贴身自适应对齐）
+   🌟 紧凑联动标签栏体系
    ========================================================================== */
-.apple-tab-bar { height: 32px; 
+.apple-tab-bar { 
+  height: 32px; 
   background: #fbfbfd; 
   border-bottom: 0.5px solid rgba(0, 0, 0, 0.08); 
   display: flex; 
   align-items: center; 
   padding: 0 12px; 
-  gap: 4px; /* 标签与「+」按钮之间保持标准 4px 紧凑贴身微间距 */
+  gap: 4px;
   flex-shrink: 0;
   box-sizing: border-box;
 }
 
-/* 标签列表容器：完全自适应收紧宽度（flex: 0 0 auto），杜绝右侧幽灵空隙 */
 .tab-list { 
   display: inline-flex !important; 
   align-items: center !important; 
@@ -430,8 +419,8 @@
 }
 .tab-list::-webkit-scrollbar { display: none; }
 
-/* 单个标签卡片：由内容自然决定宽度，随文字弹性自适应 */
-.apple-tab-item { height: 24px; 
+.apple-tab-item { 
+  height: 24px; 
   width: auto !important;
   max-width: 180px; 
   flex: 0 0 auto !important; 
@@ -462,7 +451,6 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 0.5px 1px rgba(0, 0, 0, 0.02); 
 }
 
-/* 标签文本：超出优雅截断为省略号 */
 .tab-title-text { 
   max-width: 125px; 
   white-space: nowrap; 
@@ -470,7 +458,6 @@
   text-overflow: ellipsis; 
 }
 
-/* 🌟 绿色柔光指示灯质感圆点 */
 .tab-dirty-indicator { 
   width: 6px; 
   height: 6px; 
@@ -501,7 +488,6 @@
   color: var(--text-primary);
 }
 
-/* 🌟 标签操作按钮群组（新建与批量菜单横向居中排列，彻底杜绝折行与错位） */
 .tab-action-group {
   display: inline-flex;
   align-items: center;
@@ -572,8 +558,6 @@
   left: 0;
   display: block;
 }
-
-/* legacy inline-editor removed */
 
 /* 🌟 右下角缩放控制器与小地图 */
 .canvas-floating-controls {
@@ -672,7 +656,160 @@
 }
 
 /* ==========================================================================
-   🌟 现代化大纲文档视图体系 (Apple Notes / Notion 级流式排版)
+   🔒 核心修复：锁屏安全海报卡片全套样式 (Lock Screen Overlay)
+   ========================================================================== */
+.canvas-vault-lock-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 9500;
+  background: rgba(245, 245, 247, 0.88);
+  backdrop-filter: blur(36px) saturate(190%);
+  -webkit-backdrop-filter: blur(36px) saturate(190%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.canvas-vault-lock-overlay.hidden {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.canvas-vault-lock-overlay.hidden {
+  display: none !important;
+}
+
+[data-theme="dark"] .canvas-vault-lock-overlay {
+  background: rgba(15, 18, 24, 0.92);
+}
+
+.vault-poster-card {
+  width: 420px;
+  max-width: 90vw;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 20px;
+  box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.05);
+  padding: 32px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+[data-theme="dark"] .vault-poster-card {
+  background: #1a202c;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.7);
+}
+
+.vault-poster-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+
+.vault-poster-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  letter-spacing: -0.015em;
+}
+
+.vault-poster-sub {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.vault-hint-box {
+  width: 100%;
+  background: rgba(0, 113, 227, 0.06);
+  border: 1px solid rgba(0, 113, 227, 0.15);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--apple-blue);
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.vault-poster-input-wrapper {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.vault-poster-input {
+  flex: 1;
+  height: 38px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  outline: none;
+  background: #ffffff;
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+}
+
+.vault-poster-input:focus {
+  border-color: var(--apple-blue);
+  box-shadow: 0 0 0 3px var(--apple-blue-focus-ring);
+}
+
+[data-theme="dark"] .vault-poster-input {
+  background: #252d3d;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.vault-poster-submit-btn {
+  height: 38px;
+  width: 44px;
+  border: none;
+  background: var(--apple-blue);
+  color: #ffffff;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.vault-poster-submit-btn:hover {
+  background: var(--apple-blue-hover);
+}
+
+.vault-error-hint {
+  font-size: 11.5px;
+  color: var(--apple-red);
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+.vault-shake-anim {
+  animation: vaultShake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes vaultShake {
+  10%, 90% { transform: translate3d(-2px, 0, 0); }
+  20%, 80% { transform: translate3d(4px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-6px, 0, 0); }
+  40%, 60% { transform: translate3d(6px, 0, 0); }
+}
+
+/* ==========================================================================
+   🌟 现代化大纲文档视图体系
    ========================================================================== */
 .outliner-panel {
   flex: 1 1 0;
@@ -702,7 +839,9 @@
   box-sizing: border-box;
 }
 
-.outliner-root-wrapper { margin-bottom: 16px; padding-bottom: 10px;
+.outliner-root-wrapper { 
+  margin-bottom: 16px; 
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
 }
 
@@ -842,7 +981,7 @@
   overflow: visible;
 }
 
-/* 🌟 精准匹配 Canvas 渲染基线的行内编辑器增强（左锚定自然向右生长） */
+/* 🌟 精准匹配 Canvas 渲染基线的行内编辑器增强 */
 .inline-editor {
   position: absolute !important;
   text-align: left !important;
@@ -874,52 +1013,6 @@
   display: none !important;
 }
 
-/* 🌟 大纲文档树状层级辅助线与交互强化 */
-.outliner-document {
-  position: relative;
-}
-
-.outliner-row {
-  position: relative;
-  border-radius: 6px;
-  margin: 1px 0;
-  padding-right: 8px;
-}
-
-.outliner-row:hover {
-  background-color: rgba(0, 0, 0, 0.035) !important;
-}
-
-.outliner-row.selected {
-  background-color: var(--apple-blue-subtle) !important;
-}
-
-.outliner-indent-guide {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background-color: rgba(0, 0, 0, 0.07);
-  pointer-events: none;
-}
-
-.outliner-bullet {
-  position: relative;
-  cursor: grab;
-  transition: transform 0.15s ease;
-}
-
-.outliner-bullet:active {
-  cursor: grabbing;
-}
-
-.outliner-text-input {
-  min-height: 24px;
-  caret-color: var(--apple-blue);
-  word-break: break-word;
-  transition: background-color 0.12s;
-}
-
 .outliner-note-indicator {
   font-size: 11px;
   color: var(--text-tertiary);
@@ -937,7 +1030,7 @@
 }
 
 /* ==========================================================================
-   🌟 专注模式沉浸式面包屑悬浮胶囊导航 (Apple Floating Breadcrumb Capsule)
+   🌟 专注模式沉浸式面包屑悬浮胶囊导航
    ========================================================================== */
 .apple-breadcrumb-capsule {
   position: absolute;
@@ -956,14 +1049,8 @@
   box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
   padding: 4px 6px 4px 10px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  animation: fadeInDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
   max-width: calc(100vw - 420px);
-}
-
-@keyframes fadeInDown {
-  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .breadcrumb-icon {
@@ -1008,10 +1095,6 @@
   font-weight: 700;
   cursor: default;
 }
-.breadcrumb-item.active:hover {
-  background: transparent;
-  color: var(--text-primary);
-}
 
 .breadcrumb-sep {
   color: var(--text-quaternary);
@@ -1043,7 +1126,7 @@
 }
 
 /* ==========================================================================
-   🌟 全局搜索浮动毛玻璃胶囊工具条 (Floating Search Bar Capsule)
+   🌟 全局搜索浮动毛玻璃胶囊工具条
    ========================================================================== */
 .apple-search-bar {
   position: fixed;
@@ -1063,18 +1146,7 @@
   padding: 6px 10px;
   width: 320px;
   box-sizing: border-box;
-  animation: searchSlideIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   transition: right 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes searchSlideIn {
-  from { opacity: 0; transform: translateY(-8px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.workspace-body-layout.sidebar-open ~ .apple-search-bar,
-body:has(#format-sidebar:not(.collapsed)) .apple-search-bar {
-  right: 360px;
 }
 
 .apple-search-bar .search-icon {
@@ -1148,15 +1220,10 @@ body:has(#format-sidebar:not(.collapsed)) .apple-search-bar {
   color: var(--apple-red);
 }
 
-/* 🌟 防御小地图在过渡或未加载时裸露占位框 */
 .minimap-widget.hidden,
 #home-view:not(.hidden) ~ * #minimap-widget,
 #outliner-view:not(.hidden) ~ * #minimap-widget {
   display: none !important;
-}
-.minimap-viewport-box {
-  max-width: 100% !important;
-  max-height: 100% !important;
 }
 
 /* 🌟 全局深色模式工作区高定 */
@@ -1189,3 +1256,421 @@ body:has(#format-sidebar:not(.collapsed)) .apple-search-bar {
 [data-theme="dark"] .apple-breadcrumb-capsule { background: rgba(28, 35, 48, 0.94); border-color: rgba(255, 255, 255, 0.14); }
 [data-theme="dark"] .apple-search-bar { background: rgba(28, 35, 48, 0.95); border-color: rgba(255, 255, 255, 0.15); }
 [data-theme="dark"] .inline-editor { background: #1e2637 !important; color: #f8fafc !important; }
+
+/* ==========================================================================
+   🌟 Apple Popover 悬浮弹出菜单系统 (macOS Sequoia 级超椭圆毛玻璃菜单)
+   ========================================================================== */
+.apple-popover {
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(32px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(200%) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 12px !important;
+  -webkit-corner-smoothing: 0.62;
+  box-shadow: 
+    0 18px 40px -8px rgba(15, 23, 42, 0.18),
+    0 6px 16px -2px rgba(15, 23, 42, 0.06),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 1) !important;
+  padding: 5px !important;
+  box-sizing: border-box !important;
+  user-select: none !important;
+  animation: applePopoverIn 0.14s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes applePopoverIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.apple-popover.hidden {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.popover-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: var(--text-primary, #1d1d1f) !important;
+  border-radius: 7px !important;
+  -webkit-corner-smoothing: 0.62;
+  cursor: pointer !important;
+  transition: all 0.12s ease !important;
+  white-space: nowrap !important;
+  line-height: 1.4 !important;
+}
+
+.popover-item:hover {
+  background: var(--apple-blue, #0071e3) !important;
+  color: #ffffff !important;
+}
+
+.popover-item[style*="var(--apple-red)"]:hover,
+.popover-item[style*="#ff3b30"]:hover {
+  background: var(--apple-red, #ff3b30) !important;
+  color: #ffffff !important;
+}
+
+.popover-separator {
+  height: 1px !important;
+  background: rgba(0, 0, 0, 0.06) !important;
+  margin: 4px 6px !important;
+}
+
+/* 🌟 全局深色模式高定 */
+[data-theme="dark"] .apple-popover {
+  background: rgba(28, 35, 48, 0.94) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  box-shadow: 
+    0 22px 50px -6px rgba(0, 0, 0, 0.75),
+    0 8px 20px rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+[data-theme="dark"] .popover-item {
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] .popover-item:hover {
+  background: var(--apple-blue, #0071e3) !important;
+  color: #ffffff !important;
+}
+
+[data-theme="dark"] .popover-separator {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+
+/* ======================== 🌟 节点属性专属弹出菜单与快捷排版 ======================== */
+.node-attr-popover {
+  width: 224px !important;
+  min-width: 224px !important;
+  padding: 8px !important;
+}
+
+.popover-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  padding: 4px 6px 6px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.attr-quick-icons-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  padding: 2px 4px 6px 4px;
+}
+
+.attr-icon-chip {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+.attr-icon-chip:hover {
+  background: rgba(0, 0, 0, 0.06);
+  transform: scale(1.15);
+}
+[data-theme="dark"] .attr-icon-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.attr-more-icons-btn {
+  border: none;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--apple-blue);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+.attr-more-icons-btn:hover {
+  background: var(--apple-blue);
+  color: #ffffff;
+}
+
+.attr-menu-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.popover-shortcut {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-quaternary);
+  background: rgba(0, 0, 0, 0.04);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.popover-item:hover .popover-shortcut {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.apple-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #fff;
+  padding: 1.5px 5.5px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.apple-tag.p1 { background: #ff3b30; }
+.apple-tag.p2 { background: #ff9500; }
+.apple-tag.p3 { background: #0071e3; }
+.apple-tag.p4 { background: #34c759; }
+
+.progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 2px;
+}
+.progress-dot.dot-0 { background: #94a3b8; }
+.progress-dot.dot-25 { background: #0071e3; }
+.progress-dot.dot-50 { background: #ff9500; }
+.progress-dot.dot-75 { background: #af52de; }
+.progress-dot.dot-100 { background: #34c759; }
+
+
+/* ==========================================================================
+   📝 统一 Apple 原生 Markdown 备注抽屉 (Notes Drawer HIG)
+   ========================================================================== */
+.notes-drawer-panel {
+  position: fixed !important;
+  top: 44px !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 440px !important;
+  max-width: 90vw !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(36px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(36px) saturate(200%) !important;
+  border-left: 0.5px solid rgba(0, 0, 0, 0.1) !important;
+  box-shadow: -10px 0 36px rgba(0, 0, 0, 0.08) !important;
+  z-index: 8500 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.notes-drawer-panel.hidden {
+  display: none !important;
+  transform: translateX(100%) !important;
+  pointer-events: none !important;
+}
+
+[data-theme="dark"] .notes-drawer-panel {
+  background: rgba(20, 25, 36, 0.95) !important;
+  border-left-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.5) !important;
+  color: #ffffff !important;
+}
+
+.notes-drawer-header {
+  height: 48px;
+  padding: 0 16px;
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .notes-drawer-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.notes-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.notes-title-text {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.notes-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.notes-tab-group {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+[data-theme="dark"] .notes-tab-group {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.notes-tab-btn {
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.notes-tab-btn.active {
+  background: #ffffff;
+  color: var(--apple-blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+[data-theme="dark"] .notes-tab-btn.active {
+  background: #1e2638;
+  color: #38bdf8;
+}
+
+.notes-clear-btn {
+  background: transparent;
+  border: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.12s;
+}
+.notes-clear-btn:hover {
+  background: rgba(255, 59, 48, 0.08);
+  color: var(--apple-red);
+}
+
+.notes-toolbar {
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+[data-theme="dark"] .notes-toolbar {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.note-tool-btn {
+  height: 24px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  border-radius: 5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.note-tool-btn:hover {
+  border-color: var(--apple-blue);
+  color: var(--apple-blue);
+}
+[data-theme="dark"] .note-tool-btn {
+  background: #1a2130;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.note-tool-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.1);
+  margin: 0 2px;
+}
+
+.notes-body-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.notes-editor-textarea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: transparent;
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.notes-preview-rendered {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.notes-stats-bar {
+  height: 28px;
+  padding: 0 14px;
+  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.02);
+  flex-shrink: 0;
+}
+[data-theme="dark"] .notes-stats-bar {
+  border-top-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}

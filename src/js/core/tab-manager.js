@@ -123,9 +123,17 @@ export async function closeTabWithConfirm(tabId, renderApp, showHome) {
   // 🌟 关闭标签页前收起抽屉，杜绝悬挂指针
   closeNotesDrawer();
 
+  // 🌟 安全闭环：关闭标签页时立即物理粉碎该文档在 IndexedDB 里的所有历史快照
+  try {
+    const { idbDeleteSnapshotsByTarget } = await import("../storage/idb.js");
+    await idbDeleteSnapshotsByTarget(t.title, t.filePath);
+  } catch (err) {}
+
   const remaining = closeTab(t.id);
   if (remaining === 0) {
     renderTabBar();
+    // 🌟 全部关闭合规保护：物理粉碎全库孤儿快照和草稿
+    import("../storage/idb.js").then(m => m.idbPruneOrphanSnapshots([])).catch(() => {});
     bus.emit(EVENTS.SHOW_HOME);
     return;
   }
@@ -350,6 +358,10 @@ let tabContextMenuTargetId = null;
 
 function destroyTabResources(t) {
   if (!t) return;
+  // 🌟 批量关闭时同步物理抹除该文档在 IndexedDB 的全部历史快照
+  try {
+    import("../storage/idb.js").then(m => m.idbDeleteSnapshotsByTarget(t.title, t.filePath)).catch(() => {});
+  } catch {}
   if (t._context) {
     t._context.dispose();
     t._context = null;

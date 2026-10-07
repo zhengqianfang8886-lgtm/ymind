@@ -537,9 +537,17 @@ export function syncNotesDrawerWithActiveNode() {
     return;
   }
 
+  const title = document.getElementById("notes-drawer-title");
+  const textarea = document.getElementById("notes-textarea");
+  const preview = document.getElementById("notes-preview-content");
+
+  if (title) {
+    title.innerText = (primaryNode.icon ? primaryNode.icon + " " : "") + (primaryNode.text || "节点备注");
+  }
+
+  const curNote = primaryNode.note || "";
+
   if (primaryNode.id === activeNoteNodeId) {
-    if (title) title.innerText = (primaryNode.icon ? primaryNode.icon + " " : "") + (primaryNode.text || "节点备注");
-    const curNote = primaryNode.note || "";
     if (textarea && textarea.value !== curNote) {
       textarea.value = curNote;
       committedNoteText = curNote;
@@ -554,20 +562,15 @@ export function syncNotesDrawerWithActiveNode() {
 
   flushPendingNote();
   activeNoteNodeId = primaryNode.id;
-  committedNoteText = primaryNode.note || "";
+  committedNoteText = curNote;
 
-  const title = document.getElementById("notes-drawer-title");
-  const textarea = document.getElementById("notes-textarea");
-  const preview = document.getElementById("notes-preview-content");
-
-  if (title) title.innerText = (primaryNode.icon ? primaryNode.icon + " " : "") + (primaryNode.text || "节点备注");
-  if (textarea) textarea.value = primaryNode.note || "";
+  if (textarea) textarea.value = curNote;
 
   if (preview) {
-    preview.innerHTML = DOMPurify.sanitize(renderMarkdown(primaryNode.note || ""));
+    preview.innerHTML = DOMPurify.sanitize(renderMarkdown(curNote));
     bindPreviewInteractions(preview);
   }
-  updateNotesStats(primaryNode.note || "");
+  updateNotesStats(curNote);
 }
 
 export function initNotesDrawer() {
@@ -727,13 +730,18 @@ export function initNotesDrawer() {
 }
 
 export function openNotesDrawer(node) {
-  const targetNode = node || getPrimarySelectedNode();
+  const docCtx = getActiveDocumentContext();
+  let targetNode = node || getPrimarySelectedNode() || docCtx?.mindData;
   if (!targetNode) {
-    showToast("💡 请先在画布或大纲中选中一个节点");
+    targetNode = docCtx?.mindData;
+  }
+  if (!targetNode) {
+    showToast("💡 暂无可用节点进行备注");
     return;
   }
+
   flushPendingNote();
-  activeNoteTabId = getActiveDocumentContext()?.tabId || null;
+  activeNoteTabId = docCtx?.tabId || null;
   activeNoteNodeId = targetNode.id;
   committedNoteText = targetNode.note || "";
 
@@ -754,7 +762,16 @@ export function openNotesDrawer(node) {
   updateNotesStats(targetNode.note || "");
 
   drawer.classList.remove("hidden");
-  document.getElementById("tab-notes-preview")?.click();
+  drawer.style.display = "flex";
+  drawer.style.transform = "translateX(0)";
+
+  // 默认进入编辑或预览模式
+  const hasContent = Boolean(targetNode.note && targetNode.note.trim());
+  if (hasContent) {
+    document.getElementById("tab-notes-preview")?.click();
+  } else {
+    document.getElementById("tab-notes-edit")?.click();
+  }
 }
 
 export function closeNotesDrawer() {

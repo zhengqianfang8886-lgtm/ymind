@@ -168,3 +168,84 @@ export async function idbDeleteDraft(id) {
     tx.objectStore(STORE_DRAFTS).delete(id);
   } catch {}
 }
+
+
+export async function idbDeleteSnapshotsByTarget(tabTitle, filePath = null) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SNAPSHOTS, "readwrite");
+    const store = tx.objectStore(STORE_SNAPSHOTS);
+    const cleanTitle = String(tabTitle || "").replace(/^[●\s]+/, "").trim();
+    const cleanPath = String(filePath || "").trim();
+
+    return new Promise((resolve) => {
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          const val = cursor.value;
+          const sTitle = String(val?.tabTitle || "").replace(/^[●\s]+/, "").trim();
+          const sPath = String(val?.filePath || "").trim();
+
+          const isMatch = (cleanTitle && sTitle === cleanTitle) ||
+                          (cleanPath && sPath === cleanPath) ||
+                          (cleanTitle && sPath.includes(cleanTitle)) ||
+                          (cleanPath && sTitle.includes(cleanPath));
+
+          if (isMatch) {
+            cursor.delete();
+          }
+          cursor.continue();
+        } else {
+          resolve(true);
+        }
+      };
+      req.onerror = () => resolve(false);
+      tx.oncomplete = () => resolve(true);
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function idbPruneOrphanSnapshots(activeTabs = []) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(STORE_SNAPSHOTS, "readwrite");
+    const store = tx.objectStore(STORE_SNAPSHOTS);
+
+    if (!activeTabs || activeTabs.length === 0) {
+      store.clear();
+      return new Promise((res) => {
+        tx.oncomplete = () => res(true);
+      });
+    }
+
+    const allowedTitles = new Set(activeTabs.map(t => String(t.title || "").replace(/^[●\s]+/, "").trim()).filter(Boolean));
+    const allowedPaths = new Set(activeTabs.map(t => String(t.filePath || "").trim()).filter(Boolean));
+
+    return new Promise((resolve) => {
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          const val = cursor.value;
+          const sTitle = String(val?.tabTitle || "").replace(/^[●\s]+/, "").trim();
+          const sPath = String(val?.filePath || "").trim();
+
+          const isAllowed = allowedTitles.has(sTitle) || (sPath && allowedPaths.has(sPath));
+          if (!isAllowed) {
+            cursor.delete();
+          }
+          cursor.continue();
+        } else {
+          resolve(true);
+        }
+      };
+      req.onerror = () => resolve(false);
+      tx.oncomplete = () => resolve(true);
+    });
+  } catch {
+    return false;
+  }
+}
