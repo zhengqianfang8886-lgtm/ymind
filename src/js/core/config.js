@@ -18,6 +18,9 @@ export function getDefaultSettings() {
     canvasBgColor: "studio-white",
     canvasBgPattern: "dots",
     focusFollowMode: "smooth",
+    todoCompletedColor: "blue",
+    todoCheckboxStyle: "circle",
+    todoCompletedColor: "blue",
     autoSaveInterval: "30",
     autoCheckUpdate: true,
     githubRepo: "secure-artifacts/ymind-tauri"

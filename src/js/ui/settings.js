@@ -188,6 +188,14 @@ export async function syncSettingsForm() {
       { value: "dark", label: "🌙 深色黑曜模式 (Dark Mode)" },
       { value: "auto", label: "💻 跟随操作系统设置 (System Auto)" }
     ], s.appTheme || "light"],
+    ["wrap-setting-todo-color", [
+      { value: "blue", label: "🍎 经典蓝 (Apple Blue #0071e3)" },
+      { value: "green", label: "🍏 活力绿 (Apple Green #34c759)" }
+    ], s.todoCompletedColor || "blue"],
+    ["wrap-setting-todo-color", [
+      { value: "blue", label: "🍎 经典蓝 (Apple Blue #0071e3)" },
+      { value: "green", label: "🍏 活力绿 (Apple Green #34c759)" }
+    ], s.todoCompletedColor || "blue"],
     ["wrap-setting-default-layout", [
       { value: "mindmap", label: "🌳 经典双向导图" }, { value: "logic-right", label: "➡️ 向右逻辑推导图" },
       { value: "logic-left", label: "⬅️ 向左逆向归因图" }, { value: "org-down", label: "🏢 经典组织架构图" }
@@ -284,6 +292,8 @@ export function initSettingsViewEvents(renderApp) {
   btnSave?.addEventListener("click", () => {
     const newSettings = {
       appTheme: customSelectRegistry.get("wrap-setting-app-theme")?.getValue() || "light",
+      todoCompletedColor: customSelectRegistry.get("wrap-setting-todo-color")?.getValue() || "blue",
+      todoCompletedColor: customSelectRegistry.get("wrap-setting-todo-color")?.getValue() || "blue",
       fontEn: customSelectRegistry.get("wrap-setting-font-en")?.getValue() || "-apple-system, BlinkMacSystemFont, \"SF Pro Text\"",
       fontZh: customSelectRegistry.get("wrap-setting-font-zh")?.getValue() || "\"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", sans-serif",
       layout: customSelectRegistry.get("wrap-setting-default-layout")?.getValue() || "mindmap",
@@ -306,6 +316,7 @@ export function initSettingsViewEvents(renderApp) {
 
   btnReset?.addEventListener("click", () => {
     const def = getDefaultSettings();
+    customSelectRegistry.get("wrap-setting-todo-color")?.setValue(def.todoCompletedColor || "blue");
     customSelectRegistry.get("wrap-setting-font-en")?.setValue(def.fontEn);
     customSelectRegistry.get("wrap-setting-font-zh")?.setValue(def.fontZh);
     customSelectRegistry.get("wrap-setting-default-layout")?.setValue(def.layout);

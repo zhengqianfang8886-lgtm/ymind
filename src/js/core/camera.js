@@ -145,6 +145,8 @@ export function springAnimateTo(targetX, targetY, targetScale = camera.transform
 // 🌟 深度打磨自适应定焦：侧边栏感知、多级上下文黄金分割、防突兀抗震颤
 export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx = null, fitScale = false) {
   const ctx = (customCtx && customCtx.tab) ? customCtx : (getActiveTab()?._context || null);
+  const rootId = ctx?.mindData?.id || "root";
+  const isFocusMode = Boolean(ctx?.focusedRootId && ctx.focusedRootId !== rootId);
   const currentRoot = ctx ? (findNode(ctx.focusedRootId, ctx.mindData) || ctx.mindData) : null;
   if (!currentRoot) return;
 
@@ -152,7 +154,7 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
   const hasWin = typeof window !== "undefined";
   const vp = hasDoc ? document.getElementById("viewport") : null;
 
-  // 侧边栏感知对齐
+  // 1. 侧边栏与可用视口空间计算
   const isSidebarOpen = Boolean(
     hasDoc && (
       document.querySelector(".workspace-body-layout.sidebar-open") ||
@@ -161,16 +163,13 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
   );
   const sidebarW = isSidebarOpen ? 336 : 0;
   const screenW = vp?.clientWidth || (hasWin ? window.innerWidth : 1200);
-  const usableW = Math.max(240, screenW - sidebarW);
+  const usableW = Math.max(300, screenW - sidebarW);
   const usableH = vp?.clientHeight || (hasWin ? window.innerHeight : 800);
-  const usableCenterX = usableW / 2;
-  const usableCenterY = usableH / 2;
 
-  if (currentRoot.x === undefined || currentRoot.y === undefined) {
-    computeLayout(currentRoot, 0, ctx.focusedRootId, ctx.layoutStructure, ctx.nodeSpacing || "normal");
-    assignCoordinates(currentRoot, 0, 0, ctx.focusedRootId, ctx.layoutStructure, null, null, ctx.colorPalette || "apple-classic", ctx.nodeSpacing || "normal", ctx.spatialIndex);
-    ctx.isLayoutDirty = false;
-  }
+  // 🌟 确保当前分支的布局坐标与尺寸完全新鲜
+  computeLayout(currentRoot, 0, ctx.focusedRootId, ctx.layoutStructure, ctx.nodeSpacing || "normal", true);
+  assignCoordinates(currentRoot, 0, 0, ctx.focusedRootId, ctx.layoutStructure, null, null, ctx.colorPalette || "apple-classic", ctx.nodeSpacing || "normal", ctx.spatialIndex, true, true);
+  ctx.isLayoutDirty = false;
 
   let targetNode = currentRoot;
   if (typeof nodeOrId === "string") {
@@ -179,69 +178,71 @@ export function smartAdaptiveCenter(nodeOrId = null, animated = true, customCtx 
     targetNode = nodeOrId;
   }
 
-  // 🌟 核心铁律：默认 100% 锁定并保留用户当前的视口缩放比例，绝不擅自篡改！
-  let targetScale = camera.transform.scale;
-  let centerX, centerY;
-
-  if (fitScale) {
-    // 仅在用户明确主动触发（如点击“自适应居中”或双击空白处）时，才计算全景缩放比
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of walkTree(targetNode, { skipCollapsed: true })) {
-      if (n.x !== undefined && n.y !== undefined) {
-        minX = Math.min(minX, n.x);
-        maxX = Math.max(maxX, n.x + (n.width || 80));
-        minY = Math.min(minY, n.y);
-        maxY = Math.max(maxY, n.y + (n.height || 36));
-      }
-    }
-
-    if (minX === Infinity) {
-      minX = targetNode.x || 0;
-      maxX = minX + (targetNode.width || 80);
-      minY = targetNode.y || 0;
-      maxY = minY + (targetNode.height || 36);
-    }
-
-    const padX = Math.max(80, usableW * 0.12);
-    const padY = Math.max(60, usableH * 0.12);
-    const totalW = (maxX - minX) + padX * 2;
-    const totalH = (maxY - minY) + padY * 2;
-
-    const calculatedFit = Math.min(usableW / totalW, usableH / totalH);
-    targetScale = Math.max(0.25, Math.min(1.05, calculatedFit));
-    centerX = (minX + maxX) / 2;
-    centerY = (minY + maxY) / 2;
-  } else {
-    // 🌟 视距锁定模式：仅平移对齐几何重心，保持当前 targetScale 绝对恒定
-    const hasExpandedChildren = Boolean(targetNode.children && targetNode.children.length > 0 && !targetNode.collapsed);
-    if (targetNode.id === (ctx.focusedRootId || currentRoot.id) || hasExpandedChildren) {
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const n of walkTree(targetNode, { skipCollapsed: true })) {
-        if (n.x !== undefined && n.y !== undefined) {
-          minX = Math.min(minX, n.x);
-          maxX = Math.max(maxX, n.x + (n.width || 80));
-          minY = Math.min(minY, n.y);
-          maxY = Math.max(maxY, n.y + (n.height || 36));
-        }
-      }
-      if (minX === Infinity) {
-        minX = targetNode.x || 0;
-        maxX = minX + (targetNode.width || 80);
-        minY = targetNode.y || 0;
-        maxY = minY + (targetNode.height || 36);
-      }
-      centerX = (minX + maxX) / 2;
-      centerY = (minY + maxY) / 2;
-    } else {
-      const nodeW = targetNode.width || 80;
-      const nodeH = targetNode.height || 36;
-      centerX = targetNode.x + nodeW / 2;
-      centerY = targetNode.y + nodeH / 2;
+  // 2. 统计当前目标子树的真实可视几何包围盒
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const n of walkTree(targetNode, { skipCollapsed: true })) {
+    if (n.x !== undefined && n.y !== undefined) {
+      minX = Math.min(minX, n.x);
+      maxX = Math.max(maxX, n.x + (n.width || 80));
+      minY = Math.min(minY, n.y);
+      maxY = Math.max(maxY, n.y + (n.height || 36));
     }
   }
 
-  const targetX = usableCenterX - centerX * targetScale;
-  const targetY = usableCenterY - centerY * targetScale;
+  if (minX === Infinity) {
+    minX = targetNode.x || 0;
+    maxX = minX + (targetNode.width || 80);
+    minY = targetNode.y || 0;
+    maxY = minY + (targetNode.height || 36);
+  }
+
+  const treeW = maxX - minX;
+  const treeH = maxY - minY;
+
+  let targetScale = camera.transform.scale;
+  let targetX = 0;
+  let targetY = 0;
+
+  if (isFocusMode || fitScale) {
+    // 🌟 核心突破：专注模式下的黄金视距自适应
+    // 顶部预留 85px 避让面包屑胶囊 (< 退出专注)，四周留足舒适呼吸留白
+    const padTop = 88;
+    const padBottom = 60;
+    const padLeft = Math.max(80, usableW * 0.12);
+    const padRight = Math.max(80, usableW * 0.12);
+
+    const availableW = usableW - (padLeft + padRight);
+    const availableH = usableH - (padTop + padBottom);
+
+    const scaleFitW = availableW / Math.max(1, treeW);
+    const scaleFitH = availableH / Math.max(1, treeH);
+    const calculatedScale = Math.min(scaleFitW, scaleFitH);
+
+    // 缩放比例限制在 0.55 ~ 1.05 之间，绝不过大或过小
+    targetScale = Math.max(0.55, Math.min(1.05, calculatedScale));
+
+    // 计算世界坐标居中偏置 (Optical Center Bias)
+    const contentScaledW = treeW * targetScale;
+    const contentScaledH = treeH * targetScale;
+
+    // 水平方向：若是单向右侧生长树，给根节点左侧保留优雅的阅读起始空位
+    if (usableW > contentScaledW + 100) {
+      targetX = (usableW - contentScaledW) / 2 - minX * targetScale;
+    } else {
+      targetX = padLeft - minX * targetScale;
+    }
+
+    // 垂直方向：避让顶部胶囊后的黄金视觉重心
+    targetY = padTop + (availableH - contentScaledH) / 2 - minY * targetScale;
+  } else {
+    // 普通双向导图居中模式
+    const usableCenterX = usableW / 2;
+    const usableCenterY = usableH / 2;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    targetX = usableCenterX - centerX * targetScale;
+    targetY = usableCenterY - centerY * targetScale;
+  }
 
   if (animated) {
     springAnimateTo(targetX, targetY, targetScale, 170, 22);

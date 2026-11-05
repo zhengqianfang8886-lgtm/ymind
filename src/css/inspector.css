@@ -793,3 +793,43 @@
 .strip-btn.danger:hover .strip-text {
   color: var(--apple-red);
 }
+
+/* 🌟 Apple HIG 统一轻拟物与微矢量美化 */
+.apple-sec-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--apple-blue, #0071e3);
+  margin-right: 4px;
+}
+.field-title-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+.field-title-group svg {
+  color: var(--text-tertiary);
+}
+.todo-stat-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: var(--apple-blue-subtle, rgba(0, 113, 227, 0.12));
+  color: var(--apple-blue, #0071e3);
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.todo-stat-pill.all-done {
+  background: rgba(52, 199, 89, 0.15);
+  color: #16a34a;
+}
+
+.sidebar-todo-shape-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px 4px 2px;
+}

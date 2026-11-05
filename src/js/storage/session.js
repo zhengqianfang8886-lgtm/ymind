@@ -54,6 +54,7 @@ export async function serializeTabForSession(tab) {
     boxStyle: tab.boxStyle || "squircle",
     canvasBgColor: tab.canvasBgColor || "studio-white",
     canvasBgPattern: tab.canvasBgPattern || "dots",
+    todoCheckboxStyle: tab.todoCheckboxStyle || "circle",
     viewMode: isEncrypted ? "mindmap" : (tab.viewMode || "mindmap"),
     camera: tab.camera ? { ...tab.camera } : {
       x: typeof window !== "undefined" ? window.innerWidth / 3 : 300,
@@ -106,6 +107,7 @@ export function deserializeTabFromSession(item) {
     boxStyle: item.boxStyle || "squircle",
     canvasBgColor: item.canvasBgColor || "studio-white",
     canvasBgPattern: item.canvasBgPattern || "dots",
+    todoCheckboxStyle: item.todoCheckboxStyle || "circle",
     viewMode: item.viewMode || "mindmap",
     camera: item.camera || {
       x: typeof window !== "undefined" ? window.innerWidth / 3 : 300,

@@ -1,3 +1,95 @@
+
+// 🌟 Apple 原生微质感动效体系：待办打勾弹簧阻尼 (Spring Pop) 与圆弧平滑缓动 (Arc Interpolation)
+export const todoMicroAnimator = {
+  // node.id -> { scale: 1.0, targetScale: 1.0, checkProgress: 1.0, currentAngle: targetAngle, targetAngle: number, active: boolean }
+  states: new Map(),
+
+  getState(nodeId, defaultAngle = 0, isDone = false) {
+    if (!this.states.has(nodeId)) {
+      this.states.set(nodeId, {
+        scale: 1.0,
+        velScale: 0,
+        targetScale: 1.0,
+        checkProgress: isDone ? 1.0 : 0.0,
+        currentAngle: defaultAngle,
+        targetAngle: defaultAngle,
+        colorRatio: 1.0,
+        active: false
+      });
+    }
+    return this.states.get(nodeId);
+  },
+
+  triggerCheck(nodeId, nextDone) {
+    let s = this.states.get(nodeId);
+    if (!s) {
+      s = this.getState(nodeId, 0, !nextDone);
+    }
+    s.active = true;
+    if (nextDone) {
+      // 弹性爆发：先向内瞬缩，再向外超调反弹 (Apple Reminders Pop)
+      s.scale = 0.72;
+      s.velScale = 14.5;
+      s.targetScale = 1.0;
+      s.checkProgress = 0.0;
+    } else {
+      s.scale = 0.85;
+      s.velScale = 4.0;
+      s.targetScale = 1.0;
+      s.checkProgress = 0.0;
+    }
+    nodeAnimator.startLoop();
+  },
+
+  setTargetProgress(nodeId, targetAngle) {
+    const s = this.getState(nodeId, targetAngle);
+    if (Math.abs(s.targetAngle - targetAngle) > 0.01) {
+      s.targetAngle = targetAngle;
+      s.active = true;
+      nodeAnimator.startLoop();
+    }
+  },
+
+  update(dt) {
+    let anyActive = false;
+    const tension = 260; // 弹簧刚度
+    const friction = 22; // 阻尼衰减
+
+    for (const [id, s] of this.states.entries()) {
+      if (!s.active) continue;
+
+      // 1. 物理弹簧缩放解算 (Spring Physics for Checkbox)
+      const dx = s.scale - s.targetScale;
+      const ax = -tension * dx - friction * s.velScale;
+      s.velScale += ax * dt;
+      s.scale += s.velScale * dt;
+
+      // 2. 对勾生长动画 (Checkmark draw-on)
+      if (s.checkProgress < 1.0) {
+        s.checkProgress = Math.min(1.0, s.checkProgress + dt * 6.5);
+      }
+
+      // 3. 圆弧连续旋转补间 (Smooth Arc Interpolation)
+      const angleDiff = s.targetAngle - s.currentAngle;
+      s.currentAngle += angleDiff * Math.min(1.0, dt * 12.0);
+
+      const isScaleSettled = Math.abs(dx) < 0.005 && Math.abs(s.velScale) < 0.05;
+      const isAngleSettled = Math.abs(angleDiff) < 0.008;
+
+      if (isScaleSettled && isAngleSettled && s.checkProgress >= 0.99) {
+        s.scale = 1.0;
+        s.velScale = 0;
+        s.currentAngle = s.targetAngle;
+        s.checkProgress = 1.0;
+        s.active = false;
+      } else {
+        anyActive = true;
+      }
+    }
+    return anyActive;
+  }
+};
+
 // YMind Pro - 润物细无声的 Apple 级仿生连续物理动效引擎
 import { bus, EVENTS } from "../core/event-bus.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
@@ -76,75 +168,7 @@ class NodeAnimator {
 
   // 🌟 分支收拢动效：捕获正在收起的子分支，平滑吸入父节点折叠按钮中并淡出
   collapseBranch(parentNode) {
-    if (!parentNode || !parentNode.children || parentNode.children.length === 0) return;
-
-    const collectSubtreeIds = (n, set = new Set()) => {
-      if (!n) return set;
-      set.add(n.id);
-      if (n.children) n.children.forEach(c => collectSubtreeIds(c, set));
-      return set;
-    };
-    const affectedIds = collectSubtreeIds(parentNode);
-    affectedIds.delete(parentNode.id);
-    this.collapsingEntries = this.collapsingEntries.filter(e => !affectedIds.has(e.node?.id));
-
-    const pw = parentNode.width || 80;
-    const ph = parentNode.height || 36;
-    const px = Number.isFinite(parentNode._curX) ? parentNode._curX : (parentNode.x || 0);
-    const py = Number.isFinite(parentNode._curY) ? parentNode._curY : (parentNode.y || 0);
-    const dir = parentNode.branchDirection || "right";
-
-    let anchorX, anchorY;
-    if (dir === "left") {
-      anchorX = px;
-      anchorY = py + ph / 2;
-    } else if (dir === "down") {
-      anchorX = px + pw / 2;
-      anchorY = py + ph;
-    } else {
-      anchorX = px + pw;
-      anchorY = py + ph / 2;
-    }
-
-    const now = performance.now();
-    const stack = [...parentNode.children];
-
-    while (stack.length > 0) {
-      const curr = stack.pop();
-      if (!curr) continue;
-
-      const stateRec = curr.id ? this.nodeStateMap.get(curr.id) : null;
-      const curX = Number.isFinite(curr._curX) ? curr._curX : (stateRec?.x ?? curr.x ?? anchorX);
-      const curY = Number.isFinite(curr._curY) ? curr._curY : (stateRec?.y ?? curr.y ?? anchorY);
-
-      this.animatingNodes.delete(curr);
-      if (curr.id) this.nodeStateMap.delete(curr.id);
-
-      this.collapsingEntries.push({
-        node: curr,
-        startX: curX,
-        startY: curY,
-        curX: curX,
-        curY: curY,
-        targetX: anchorX - (dir === "left" ? (curr.width || 80) : 0),
-        targetY: anchorY - (curr.height || 36) / 2,
-        anchorX: anchorX,
-        anchorY: anchorY,
-        alpha: 1.0,
-        startTime: now,
-        duration: 200,
-        color: curr.colorTheme ? (curr.colorTheme.line || curr.colorTheme.border) : "#86868b",
-        branchDirection: curr.branchDirection || dir
-      });
-
-      if (curr.children && curr.children.length > 0 && !curr.collapsed) {
-        for (let i = 0; i < curr.children.length; i++) {
-          stack.push(curr.children[i]);
-        }
-      }
-    }
-
-    this.startLoop();
+    this.collapsingEntries = [];
   }
 
   /**
@@ -240,119 +264,7 @@ class NodeAnimator {
 
   // 🌟 高性能合批与 LOD 降级绘制（防卡顿与残影）
   drawCollapsingNodes(ctx, docCtx, scale) {
-    if (!this.collapsingEntries || this.collapsingEntries.length === 0) return;
-
-    const isGlobalDark = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "dark";
-    const isDarkCanvas = isGlobalDark || isDarkCanvasTheme(docCtx?.canvasBgColor);
-    const boxStyle = docCtx?.boxStyle || "squircle";
-    const totalCount = this.collapsingEntries.length;
-
-    // 1. 连线合批优化 (Path2D Batching)
-    const lineBatches = new Map();
-    let avgAlpha = 0;
-    let activeCount = 0;
-
-    for (let i = 0; i < totalCount; i++) {
-      const item = this.collapsingEntries[i];
-      if (item.alpha <= 0.05) continue;
-
-      avgAlpha += item.alpha;
-      activeCount++;
-
-      const { node, curX, curY, anchorX, anchorY, color, branchDirection } = item;
-      const nw = node.width || 80;
-      const nh = node.height || 36;
-      const childMidY = curY + nh / 2;
-      const childMidX = (branchDirection === "left") ? (curX + nw) : curX;
-      const dx = childMidX - anchorX;
-      const dy = childMidY - anchorY;
-
-      let batch = lineBatches.get(color);
-      if (!batch) {
-        batch = new Path2D();
-        lineBatches.set(color, batch);
-      }
-
-      batch.moveTo(anchorX, anchorY);
-      if (branchDirection === "down") {
-        batch.bezierCurveTo(anchorX, anchorY + dy * 0.5, childMidX, childMidY - dy * 0.5, childMidX, childMidY);
-      } else {
-        batch.bezierCurveTo(anchorX + dx * 0.5, anchorY, childMidX - dx * 0.5, childMidY, childMidX, childMidY);
-      }
-    }
-
-    if (activeCount > 0) {
-      avgAlpha /= activeCount;
-      ctx.save();
-      ctx.globalAlpha = Math.min(1.0, avgAlpha * 0.75);
-      ctx.lineWidth = 2.0 / scale;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      lineBatches.forEach((path, color) => {
-        ctx.strokeStyle = color;
-        ctx.stroke(path);
-      });
-      ctx.restore();
-    }
-
-    // 2. 卡片 LOD 极速降级
-    const useFastGeom = totalCount > 15 || scale < 0.5;
-
-    for (let i = 0; i < totalCount; i++) {
-      const item = this.collapsingEntries[i];
-      const { node, curX, curY, alpha, color } = item;
-      if (alpha <= 0.05) continue;
-
-      const nw = node.width || 80;
-      const nh = node.height || 36;
-      const shrink = 1.0 - (1.0 - alpha) * 0.28;
-      const cx = curX + nw / 2;
-      const cy = curY + nh / 2;
-
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.translate(cx, cy);
-      ctx.scale(shrink, shrink);
-      ctx.translate(-cx, -cy);
-
-      if (boxStyle !== "underline") {
-        if (useFastGeom || boxStyle === "rect") {
-          ctx.beginPath();
-          ctx.rect(curX, curY, nw, nh);
-        } else {
-          drawAppleSquircle(ctx, curX, curY, nw, nh, 7);
-        }
-
-        if (boxStyle === "solid") {
-          ctx.fillStyle = node.colorTheme ? (node.colorTheme.solid || node.colorTheme.border) : "#0071e3";
-          ctx.fill();
-        } else {
-          ctx.fillStyle = isDarkCanvas ? "rgba(30, 36, 48, 0.96)" : "#ffffff";
-          ctx.fill();
-          ctx.strokeStyle = node.colorTheme ? node.colorTheme.border : (isDarkCanvas ? "rgba(255, 255, 255, 0.25)" : "rgba(0, 0, 0, 0.18)");
-          ctx.lineWidth = 1.8 / scale;
-          ctx.stroke();
-        }
-
-        if (alpha > 0.35 && nw > 28) {
-          ctx.fillStyle = (boxStyle === "solid")
-            ? "rgba(255, 255, 255, 0.5)"
-            : (isDarkCanvas ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.12)");
-          const barW = Math.max(12, Math.min(nw - 16, 50));
-          ctx.fillRect(curX + 8, cy - 2, barW, 4);
-        }
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(curX, curY + nh);
-        ctx.lineTo(curX + nw, curY + nh);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2.2 / scale;
-        ctx.stroke();
-      }
-
-      ctx.restore();
-    }
+    return;
   }
 
   startLoop() {
@@ -362,7 +274,7 @@ class NodeAnimator {
     const step = (now) => {
       this.inFrame = true;
       const dt = Math.min(0.032, (now - this.lastTime) / 1000);
-      this.lastTime = now;
+            this.lastTime = now;
       let stillActive = false;
 
       const tension = 240;

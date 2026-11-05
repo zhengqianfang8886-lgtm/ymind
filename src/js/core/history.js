@@ -383,8 +383,11 @@ export function abortDraftNodeCreation(tab, nodeId) {
   if (!tab || !tab.mindData || !nodeId) return;
   const parent = findParent(nodeId, tab.mindData);
   if (parent && parent.children) {
+    const curIdx = parent.children.findIndex(c => c.id === nodeId);
+    const fallbackSibling = curIdx > 0 ? parent.children[curIdx - 1] : (curIdx < parent.children.length - 1 ? parent.children[curIdx + 1] : null);
     parent.children = parent.children.filter(c => c.id !== nodeId);
-    tab.selectedIds = new Set([parent.id]);
+    // 🌟 安全兜底：优先退至前一个兄弟节点，无兄弟时才退回父节点
+    tab.selectedIds = new Set([fallbackSibling ? fallbackSibling.id : parent.id]);
     tab.isLayoutDirty = true;
     rebuildTopologyIndex(tab.mindData);
     logger.info("DraftAbort", `Draft node [${nodeId}] removed cleanly`);

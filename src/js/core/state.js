@@ -164,6 +164,9 @@ export class DocumentContext {
       if (nextRootId !== (this.tab.mindData?.id || "root")) {
         startFocusSession(this.tab, nextRootId);
       }
+      // 🌟 标记新鲜状态，强制重新计算专注分支的局部几何
+      this.tab._skipAnimation = true;
+      this.tab.isLayoutDirty = true;
     }
   }
 
@@ -418,6 +421,7 @@ export function createNewTab(templateId = "mindmap-blank", customTitle = null) {
     boxStyle: getGlobalSettings().boxStyle || "squircle",
     canvasBgColor: getGlobalSettings().canvasBgColor || "studio-white",
     canvasBgPattern: getGlobalSettings().canvasBgPattern || "dots",
+    todoCheckboxStyle: getGlobalSettings().todoCheckboxStyle || "circle",
     viewMode: "mindmap",
     camera: {
       x: typeof window !== "undefined" ? window.innerWidth / 3 : 300,

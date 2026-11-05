@@ -448,7 +448,7 @@ export function render(docCtxOrState, callbacks) {
       }
 
       if (isSelected && state.editingNodeId !== node.id) {
-        const offset = 2.5;
+        const offset = 3.5;
         if (boxStyle === "underline") {
           const padX = 4, padY = 3;
           ctx.beginPath();
@@ -523,7 +523,7 @@ export function render(docCtxOrState, callbacks) {
   updateBreadcrumbs(docCtx, (id) => {
     docCtx.focusBranch(id);
     callbacks.onRender();
-    smartAdaptiveCenter(null, true, docCtx);
+    smartAdaptiveCenter(null, true, docCtx, true);
   });
 
   updateMinimap();

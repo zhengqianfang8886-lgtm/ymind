@@ -378,34 +378,19 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
     textDiv.onblur = () => {
       if (isComposingIME) return;
       const val = textDiv.innerText.trim();
-      // 🌟 防线 1：若节点未输入任何文字且无子节点（如回车新建后直接失焦），彻底移除该空节点，杜绝隐形幽灵节点
-      if (!val && (!node.children || node.children.length === 0)) {
-        const curIdx = parentNode.children ? parentNode.children.findIndex(c => c.id === node.id) : -1;
-        if (curIdx !== -1) {
-          executeCommand({
-            type: COMMANDS.REMOVE_NODE,
-            nodeId: node.id,
-            oldParentId: parentNode.id,
-            oldIndex: curIdx,
-            oldNode: node
-          });
-          if (ctx) {
-            ctx.markLayoutDirty(parentNode.id);
-            const fallbackNode = parentNode.children[Math.max(0, curIdx - 1)] || parentNode;
-            ctx.selectNode(fallbackNode.id);
-          }
-          renderOutliner(renderAppRef);
-          bus.emit(EVENTS.RENDER_APP);
-          return;
-        }
-      }
-      if (val !== node.text) {
+      // 🌟 方案 C：大纲视图失焦不删除节点，自动填充占位文本并保持焦点
+      const finalVal = val || (node.todo ? "新待办" : (node.text || "新主题"));
+      textDiv.innerText = finalVal;
+      if (finalVal !== node.text) {
         executeCommand({
           type: COMMANDS.SET_TEXT,
           nodeId: node.id,
           oldText: node.text,
-          newText: val || "新主题"
+          newText: finalVal
         });
+        delete node._cachedMetrics;
+        node._layoutDirty = true;
+        if (ctx) ctx.markLayoutDirty(node.id);
       }
     };
 
@@ -415,21 +400,85 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
 
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        // 🌟 防线 2：若当前行本身就是末梢空白节点，拦截连续回车，禁止空节点链式繁殖
+
+        // 🌟 决策边界 1：空待办按回车 -> 自动退出待办模式 (Auto-Breakout)
+        if (node.todo && !textDiv.innerText.trim()) {
+          const subCommands = [{
+            type: COMMANDS.UPDATE_ATTRS,
+            nodeId: node.id,
+            oldAttrs: { todo: true, done: Boolean(node.done) },
+            newAttrs: { todo: false, done: false }
+          }];
+
+          const remainingTodos = (parentNode.children || []).filter(c => c.id !== node.id && c.todo);
+          let newPrg = null;
+          if (remainingTodos.length > 0) {
+            const doneCount = remainingTodos.filter(c => c.done).length;
+            newPrg = `${doneCount}/${remainingTodos.length}`;
+          }
+          if (parentNode.progress !== newPrg) {
+            subCommands.push({
+              type: COMMANDS.UPDATE_ATTRS,
+              nodeId: parentNode.id,
+              oldAttrs: { progress: parentNode.progress || null },
+              newAttrs: { progress: newPrg }
+            });
+            delete parentNode._cachedMetrics;
+            parentNode._layoutDirty = true;
+          }
+
+          if (subCommands.length === 1) executeCommand(subCommands[0]);
+          else executeCompoundCommand(subCommands);
+
+          delete node._cachedMetrics;
+          node._layoutDirty = true;
+          if (ctx) ctx.markLayoutDirty(parentNode.id);
+          renderOutliner(renderAppRef);
+          bus.emit(EVENTS.RENDER_APP);
+          return;
+        }
+
+        // 普通空节点防连续回车繁殖
         if (!textDiv.innerText.trim() && (!node.children || node.children.length === 0)) {
           return;
         }
+
+        // 🌟 决策边界 2：继承待办属性 (todo: true, done: false)
         const newSibling = {
           id: "node_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
           text: "",
+          todo: Boolean(node.todo),
+          done: false,
           children: []
         };
-        executeCommand({
+
+        const subCommands = [{
           type: COMMANDS.INSERT_NODE,
           parentId: parentNode.id,
           index: curIdx + 1,
           node: newSibling
-        });
+        }];
+
+        if (newSibling.todo) {
+          const currentTodos = (parentNode.children || []).filter(c => c.todo);
+          const totalTodos = currentTodos.length + 1;
+          const doneCount = currentTodos.filter(c => c.done).length;
+          const newPrg = `${doneCount}/${totalTodos}`;
+          if (parentNode.progress !== newPrg) {
+            subCommands.push({
+              type: COMMANDS.UPDATE_ATTRS,
+              nodeId: parentNode.id,
+              oldAttrs: { progress: parentNode.progress || null },
+              newAttrs: { progress: newPrg }
+            });
+            delete parentNode._cachedMetrics;
+            parentNode._layoutDirty = true;
+          }
+        }
+
+        if (subCommands.length === 1) executeCommand(subCommands[0]);
+        else executeCompoundCommand(subCommands);
+
         pendingFocusNodeId = newSibling.id;
         if (ctx) ctx.selectNode(newSibling.id);
         renderOutliner(renderAppRef);
@@ -522,8 +571,7 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
         let newPrg = null;
         if (todoChildren.length > 0) {
           const doneCount = todoChildren.filter(c => c.done).length;
-          const pct = Math.round((doneCount / todoChildren.length) * 100);
-          newPrg = `${pct}%`;
+          newPrg = `${doneCount}/${todoChildren.length}`;
         }
         if (parentNode.progress !== newPrg) {
           subCommands.push({
@@ -532,6 +580,8 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
             oldAttrs: { progress: parentNode.progress || null },
             newAttrs: { progress: newPrg }
           });
+          delete parentNode._cachedMetrics;
+          parentNode._layoutDirty = true;
           if (ctx) ctx.markLayoutDirty(parentNode.id);
         }
 

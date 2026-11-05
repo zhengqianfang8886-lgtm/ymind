@@ -10,7 +10,7 @@ import { bus, EVENTS } from "../core/event-bus.js";
  * 🌟 核心算法：自适应计算父节点在子节点发生增/删/改后的最新聚合完成度
  * 若已无任何待办子节点，则返回 null 清空进度环
  */
-export function calculateRollupProgress(parent, excludingNodeIds = new Set(), overrideNodeState = null) {
+export function calculateRollupProgressDetails(parent, excludingNodeIds = new Set(), overrideNodeState = null) {
   if (!parent || !parent.children) return null;
   const remainingChildren = parent.children.filter(c => !excludingNodeIds.has(c.id));
   const todoChildren = remainingChildren.filter(c => {
@@ -29,20 +29,49 @@ export function calculateRollupProgress(parent, excludingNodeIds = new Set(), ov
     return Boolean(c.done);
   }).length;
 
-  const pct = Math.round((doneCount / todoChildren.length) * 100);
-  return `${pct}%`;
+  const total = todoChildren.length;
+  const pct = Math.round((doneCount / total) * 100);
+  return {
+    progressStr: `${pct}%`,
+    countStr: `${doneCount}/${total}`,
+    doneCount,
+    total
+  };
+}
+
+export function calculateRollupProgress(parent, excludingNodeIds = new Set(), overrideNodeState = null) {
+  const details = calculateRollupProgressDetails(parent, excludingNodeIds, overrideNodeState);
+  if (!details) return null;
+  // 🌟 在进度数据中完整记录 1/3 与完成度
+  parent._todoCountStr = details.countStr;
+  return details.countStr; // 直接返回形如 1/3 的数量标识
 }
 
 export function isClickOnCheckbox(node, clickWorldX, clickWorldY) {
   if (!node || !node.todo) return false;
-  const padX = Math.max(4, Math.round((node.width - (node.contentWidth || 0)) / 2));
+  const hitPad = 6;
+
+  // 🌟 第一优先：直接读取绘制期记录的像素级绝对几何位置，杜绝任何位移错位
+  if (node._checkboxRect) {
+    const { x, y, width, height } = node._checkboxRect;
+    return clickWorldX >= x - hitPad && clickWorldX <= x + width + hitPad &&
+           clickWorldY >= y - hitPad && clickWorldY <= y + height + hitPad;
+  }
+
+  // 兜底计算：必须完整累加前置序号宽度！
+  const padX = Math.max(6, Math.round((node.width - (node.contentWidth || 0)) / 2));
   let currentOffset = padX;
+
+  if (node._orderNumber) {
+    const numStr = String(node._orderNumber);
+    const numW = Math.max(15, numStr.length * 7 + 8);
+    currentOffset += (numW + 4);
+  }
 
   const boxX = node.x + currentOffset;
   const centerY = node.y + node.height / 2;
-  const hitPad = 4;
 
-  return clickWorldX >= boxX - hitPad && clickWorldX <= boxX + 13 + hitPad &&
+  return clickWorldX >= boxX - hitPad && clickWorldX <= boxX + 14 + hitPad &&
          clickWorldY >= centerY - 7 - hitPad && clickWorldY <= centerY + 7 + hitPad;
 }
 
@@ -50,11 +79,11 @@ export function isClickOnCheckbox(node, clickWorldX, clickWorldY) {
  * 切换待办完成状态，并自动联动删除线与父级进度聚合 (Roll-up)
  */
 export function toggleTaskDone(node) {
-  const docCtx = getActiveDocumentContext();
+    const docCtx = getActiveDocumentContext();
   if (!docCtx || !node || !node.todo) return;
 
   const nextDone = !node.done;
-  const subCommands = [];
+    const subCommands = [];
 
   // 1. 更新当前节点状态与划线
   subCommands.push({
@@ -75,6 +104,9 @@ export function toggleTaskDone(node) {
         oldAttrs: { progress: parent.progress || null },
         newAttrs: { progress: newPrg }
       });
+      // 🌟 彻底清除父级旧尺寸缓存，确保卡片宽度重新随 0/4 撑开
+      delete parent._cachedMetrics;
+      parent._layoutDirty = true;
       docCtx.markLayoutDirty(parent.id);
     }
   }
@@ -145,8 +177,7 @@ export function toggleNodeTodo(targetNode = null) {
         const isTarget = nodes.some(n => n.id === c.id);
         return isTarget ? false : Boolean(c.done);
       }).length;
-      const pct = Math.round((doneCount / remainingTodoChildren.length) * 100);
-      newPrg = `${pct}%`;
+      newPrg = `${doneCount}/${remainingTodoChildren.length}`;
     }
 
     if (parent.progress !== newPrg) {
@@ -156,6 +187,8 @@ export function toggleNodeTodo(targetNode = null) {
         oldAttrs: { progress: parent.progress || null },
         newAttrs: { progress: newPrg }
       });
+      delete parent._cachedMetrics;
+      parent._layoutDirty = true;
       docCtx.markLayoutDirty(parent.id);
     }
   });
@@ -189,7 +222,7 @@ export function handleNodesMigrationTodoProgress(oldParent, newParent, movingNod
       let newOldPrg = null;
       if (remainingTodos.length > 0) {
         const doneCount = remainingTodos.filter(c => c.done).length;
-        newOldPrg = `${Math.round((doneCount / remainingTodos.length) * 100)}%`;
+        newOldPrg = `${doneCount}/${remainingTodos.length}`;
       }
       if (oldParent.progress !== newOldPrg) {
         commands.push({
@@ -198,6 +231,8 @@ export function handleNodesMigrationTodoProgress(oldParent, newParent, movingNod
           oldAttrs: { progress: oldParent.progress || null },
           newAttrs: { progress: newOldPrg }
         });
+        delete oldParent._cachedMetrics;
+        oldParent._layoutDirty = true;
       }
     }
   }
@@ -211,7 +246,7 @@ export function handleNodesMigrationTodoProgress(oldParent, newParent, movingNod
       let newParentPrg = null;
       if (totalTodos > 0) {
         const doneCount = existingTodoChildren.filter(c => c.done).length + incomingTodoNodes.filter(c => c.done).length;
-        newParentPrg = `${Math.round((doneCount / totalTodos) * 100)}%`;
+        newParentPrg = `${doneCount}/${totalTodos}`;
       }
       if (newParent.progress !== newParentPrg) {
         commands.push({
@@ -220,6 +255,8 @@ export function handleNodesMigrationTodoProgress(oldParent, newParent, movingNod
           oldAttrs: { progress: newParent.progress || null },
           newAttrs: { progress: newParentPrg }
         });
+        delete newParent._cachedMetrics;
+        newParent._layoutDirty = true;
       }
     }
   }

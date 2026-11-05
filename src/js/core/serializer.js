@@ -92,7 +92,7 @@ export function compactMindNode(node) {
   if (link && typeof link === "string" && link.trim()) out.link = link;
 
   if (data.ordered || node.ordered) out.ordered = true;
-  if (data.todo || node.todo) out.todo = true;
+  if (data.todo || node.todo || data.done || node.done) out.todo = true;
   if (data.done || node.done) out.done = true;
 
   const dueDate = data.dueDate || node.dueDate;
@@ -179,6 +179,7 @@ export async function serializeTabToPackage(tab) {
       canvasTheme: tab?.canvasTheme || "studio-light",
       canvasBgColor: tab?.canvasBgColor || "studio-white",
       canvasBgPattern: tab?.canvasBgPattern || "dots",
+      todoCheckboxStyle: tab?.todoCheckboxStyle || "circle",
       mindData: isEncrypted ? null : finalPayload,
       versions: compactedVersions,
       encryptedVault: isEncrypted ? encryptedPackage : null
@@ -273,7 +274,7 @@ export function normalizeMindNode(n) {
     note: data.note || n.note || data.notes || n.notes || "",
     link: data.link || n.link || data.url || n.url || null,
     ordered: Boolean(data.ordered || n.ordered),
-    todo: Boolean(data.todo || n.todo),
+    todo: Boolean(data.todo || n.todo || data.done || n.done),
     done: Boolean(data.done || n.done),
     dueDate: data.dueDate || n.dueDate || null,
     duration: data.duration || n.duration || null,
@@ -297,6 +298,7 @@ export function deserializePackage(parsed, defaultFileName = "本地思维导图
   let rootRaw = parsed;
   let loadedLayout = "mindmap", loadedPalette = "apple-classic", loadedLine = "curve", loadedBox = "squircle", loadedTheme = "studio-light", loadedVersions = [];
   let loadedBgColor = "studio-white", loadedBgPattern = "dots";
+  let loadedTodoCheckboxStyle = "circle";
   let isEncrypted = false;
   let encryptedVault = null;
 
@@ -323,6 +325,7 @@ export function deserializePackage(parsed, defaultFileName = "本地思维导图
     loadedTheme = parsed.canvasTheme || "studio-light";
     loadedBgColor = parsed.canvasBgColor || "studio-white";
     loadedBgPattern = parsed.canvasBgPattern || "dots";
+    loadedTodoCheckboxStyle = parsed.todoCheckboxStyle || "circle";
     loadedVersions = (!isEncrypted && Array.isArray(parsed.versions)) ? parsed.versions : [];
   }
 
@@ -348,6 +351,7 @@ export function deserializePackage(parsed, defaultFileName = "本地思维导图
     loadedTheme: loadedTheme,
     loadedBgColor: loadedBgColor,
     loadedBgPattern: loadedBgPattern,
+    loadedTodoCheckboxStyle: loadedTodoCheckboxStyle,
     loadedVersions: loadedVersions
   };
 }

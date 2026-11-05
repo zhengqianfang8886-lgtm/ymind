@@ -309,6 +309,22 @@ export function getEffectiveNodeTypography(node, level = 0, focusedRootId = "roo
 
 export function measureNodeSize(node, level, focusedRootId) {
   if (!node) return;
+
+  // 🌟 待办进度自动聚合与自愈：若该节点拥有待办子项，以子项真实状态权威聚合为形如 "0/3" 的数量胶囊
+  if (node.children && Array.isArray(node.children)) {
+    const todoChildren = node.children.filter(c => c && c.todo);
+    if (todoChildren.length > 0) {
+      const doneCount = todoChildren.filter(c => c.done).length;
+      const rollupStr = `${doneCount}/${todoChildren.length}`;
+      if (node.progress !== rollupStr) {
+        node.progress = rollupStr;
+        delete node._cachedMetrics;
+      }
+    } else if (node.progress && String(node.progress).includes('/')) {
+      node.progress = null;
+      delete node._cachedMetrics;
+    }
+  }
   const isRoot = node.id === focusedRootId;
   const isLevel1 = level === 1;
   const typo = getEffectiveNodeTypography(node, level, focusedRootId);
@@ -329,7 +345,7 @@ export function measureNodeSize(node, level, focusedRootId) {
       sig.textDecoration === textDecoration &&
       sig.icon === node.icon &&
       sig.priority === node.priority &&
-      sig.progress === node.progress &&
+      String(sig.progress || "") === String(node.progress || "") &&
       sig.hasNote === Boolean(node.note) &&
       sig.hasLink === Boolean(node.link) &&
       sig.todoState === (node.todo ? (node.done ? 2 : 1) : 0) &&
@@ -360,7 +376,15 @@ export function measureNodeSize(node, level, focusedRootId) {
   if (node.todo) extraLeftWidth += 20;
   if (node.icon) extraLeftWidth += 20;
   if (node.priority) extraLeftWidth += 23;
-  if (node.progress !== undefined && node.progress !== null && node.progress !== '') extraLeftWidth += 18;
+  // 🌟 统一左侧槽位测量：进度圆环 (18px) + 若含 0/4 等待办胶囊则加上胶囊真实宽度
+  if (node.progress !== undefined && node.progress !== null && node.progress !== '') {
+    extraLeftWidth += 18;
+    const prgStr = String(node.progress);
+    if (prgStr.includes('/')) {
+      const cntW = getTextLineWidth(prgStr, 8.5, "700") + 12;
+      extraLeftWidth += (cntW + 4);
+    }
+  }
   if (extraLeftWidth > 0) extraLeftWidth += 5;
 
   let extraRightWidth = 0;
@@ -393,7 +417,7 @@ export function measureNodeSize(node, level, focusedRootId) {
   const minW = isRoot ? 78 : (isLevel1 ? 42 : 34);
 
   node.contentWidth = extraLeftWidth + textWidth + extraRightWidth + tagsWidth;
-  node.width = Math.max(minW, Math.ceil(node.contentWidth + padX * 2));
+  node.width = Math.max(minW, Math.ceil(node.contentWidth + padX * 2 + 4));
   const rawH = Math.ceil((lines.length - 1) * lineHeight + fontSize + padY * 2);
   node.height = Math.max(minH, rawH);
 
@@ -410,7 +434,7 @@ export function measureNodeSize(node, level, focusedRootId) {
     textDecoration,
     icon: node.icon,
     priority: node.priority,
-    progress: node.progress,
+    progress: String(node.progress || ""),
     hasNote: Boolean(node.note),
     hasLink: Boolean(node.link),
     hasDuration: Boolean(node.duration),

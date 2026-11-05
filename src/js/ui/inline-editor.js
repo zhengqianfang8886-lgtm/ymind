@@ -180,30 +180,37 @@ export function startNodeEdit(node, stateRef, onRender, isNewNode = false, custo
     let val = inlineEditor.value.trim();
     state.editingNodeId = null;
 
-    const isBlankDraft = (val === "" || val === "新主题" || val === "新分支");
-    if (isCancelled || (isNewNode && isBlankDraft)) {
-      if (isNewNode && ctx) {
-        abortDraftNodeCreation(ctx.tab, node.id);
-        ctx.markLayoutDirty(null);
-        if (ctx.tab) ctx.tab.isLayoutDirty = true;
-      }
-      onRender();
-      return;
+    // 🌟 方案 C：占位符兜底，彻底关闭自动销毁机制，空输入自动填充默认文本，焦点坚挺停留在新节点上
+    if (val === "") {
+      val = node.todo ? "新待办" : (node.text || (isNewNode ? "新主题" : "新分支"));
     }
 
-    if (val !== "" && val !== originalText && ctx) {
+    if (val !== originalText && ctx) {
       ctx.executeCommand({
         type: COMMANDS.SET_TEXT,
         nodeId: node.id,
         oldText: originalText,
         newText: val
       });
+      delete node._cachedMetrics;
+      node._layoutDirty = true;
       ctx.markLayoutDirty(node.id);
       if (ctx.tab) ctx.tab.isLayoutDirty = true;
       if (node.id === ctx.mindData?.id) {
         if (!ctx.tab.filePath) ctx.tab.title = val;
       }
+    } else {
+      node.text = val;
+      delete node._cachedMetrics;
+      node._layoutDirty = true;
+      if (ctx) ctx.markLayoutDirty(node.id);
     }
+
+    // 🌟 核心：确保焦点锁定在新节点本身，绝对不跳向父节点
+    if (ctx) {
+      ctx.selectNode(node.id);
+    }
+
     syncInspectorUi(ctx);
     onRender();
 

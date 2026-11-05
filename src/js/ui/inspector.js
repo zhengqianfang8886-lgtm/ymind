@@ -295,6 +295,58 @@ export function initInspectorEvents() {
 }
 
 export function bindSidebarNodeTaskEvents() {
+  // 🌟 待办形态 (圆形 / 方圆) 分段切换绑定
+  const shapeWrap = document.getElementById("sidebar-todo-shape-wrap");
+  const shapeBtns = document.querySelectorAll("#todo-shape-options .style-btn");
+  if (shapeBtns.length > 0 && !shapeBtns[0]._bound) {
+    shapeBtns.forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const nextShape = btn.dataset.shape;
+        const ctx = getActiveDocumentContext();
+        const tab = ctx?.tab || getActiveTab();
+
+        if (tab) {
+          tab.todoCheckboxStyle = nextShape;
+          tab.isDirty = true;
+
+          // 🌟 1. 物理持久化保存到全局配置与本地存储
+          try {
+            const curCfg = getGlobalSettings();
+            curCfg.todoCheckboxStyle = nextShape;
+            saveGlobalSettings(curCfg);
+          } catch(e) {}
+
+          // 🌟 2. 核心：强制递归清除树节点旧几何缓存，保证复选框形状 0ms 瞬间重绘！
+          if (tab.mindData) {
+            function clearMetrics(n) {
+              delete n._cachedMetrics;
+              if (n.children) n.children.forEach(clearMetrics);
+            }
+            clearMetrics(tab.mindData);
+          }
+
+          if (ctx) {
+            ctx.markLayoutDirty(null);
+            ctx.isLayoutDirty = true;
+          }
+          if (tab) tab.isLayoutDirty = true;
+          state.isLayoutDirty = true;
+
+          // 🌟 3. 按钮高亮瞬间切换
+          shapeBtns.forEach(b => b.classList.toggle("active", b.dataset.shape === nextShape));
+
+          // 🌟 4. 双通道即刻触发全画布与应用重绘 (0ms 瞬时响应)
+          bus.emit(EVENTS.RENDER_CANVAS_ONLY);
+          bus.emit(EVENTS.RENDER_APP);
+
+          showToast(nextShape === "circle" ? "◯ 已切换为 Apple 经典圆形复选框" : "▢ 已切换为原生方圆复选框");
+        }
+      };
+      btn._bound = true;
+    });
+  }
+
   const toggleOrder = document.getElementById("sidebar-order-toggle");
   if (toggleOrder && !toggleOrder._bound) {
     toggleOrder.onchange = (e) => {
@@ -535,7 +587,8 @@ export function bindSidebarNodeTaskEvents() {
         ctx.focusBranch(nextId);
         ctx.isLayoutDirty = true;
         bus.emit(EVENTS.RENDER_APP);
-        smartAdaptiveCenter(null, true, ctx);
+        // 🌟 进入专注时明确启用自适应黄金视距 (fitScale = true)
+        smartAdaptiveCenter(null, true, ctx, true);
       }
     };
     btnFocus._bound = true;
@@ -647,6 +700,17 @@ export function syncSidebarNodeTaskCard(node, tab, docCtx) {
     doneWrap.style.display = node.todo ? "flex" : "none";
   }
   if (checkDone) checkDone.checked = Boolean(node.done);
+  const shapeWrap = document.getElementById("sidebar-todo-shape-wrap");
+  if (shapeWrap) {
+    shapeWrap.classList.toggle("hidden", !node || !node.todo);
+    const curShape = tab?.todoCheckboxStyle || "circle";
+    document.querySelectorAll("#todo-shape-options .style-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.shape === curShape);
+    });
+  }
+
+
+
 
   if (dueText) {
     dueText.innerText = node.dueDate || "未设置";

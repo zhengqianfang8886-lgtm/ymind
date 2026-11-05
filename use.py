@@ -1,314 +1,242 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+YMind Pro Studio - 方案 C (XMind式占位兜底) 自动注入脚本
+- 自动备份原始文件 (.bak)
+- 彻底移除新建节点空内容失焦自动删除逻辑
+- 保证焦点 100% 停留在新节点上，绝不跳回父节点
+- 待办节点兜底为 "新待办"，普通节点兜底为 "新主题"/"新分支"
+- 全面覆盖画布模式与大纲视图
+"""
+
 import os
-import re
+import sys
+import shutil
 
-# =========================================================================
-# 1. 修复 src/js/ui/notes.js: 补全兜底节点，确保无论何时点击都能无条件弹出抽屉
-# =========================================================================
-notes_js_path = "src/js/ui/notes.js"
-if os.path.exists(notes_js_path):
-    with open(notes_js_path, "r", encoding="utf-8") as f:
-        code = f.read()
+def find_project_root():
+    candidates = [os.getcwd(), os.path.dirname(os.path.abspath(__file__))]
+    for c in candidates:
+        if os.path.isdir(os.path.join(c, "src", "js")):
+            return c
+    print("❌ 错误：未找到项目 src/js 目录，请在项目根目录下运行此脚本。")
+    sys.exit(1)
 
-    # 替换 openNotesDrawer 逻辑：
-    # 1. targetNode 增加根节点兜底，绝不提前 return
-    # 2. 移除 hidden 的同时显式赋予 display: flex 与 z-index
-    old_open_pattern = re.compile(
-        r"export function openNotesDrawer\(node\)\s*\{[\s\S]*?drawer\.classList\.remove\(\"hidden\"\);[\s\S]*?\}"
-    )
+def backup_and_write(filepath, new_content):
+    bak_path = filepath + ".bak"
+    if not os.path.exists(bak_path):
+        shutil.copyfile(filepath, bak_path)
+        print(f"📦 已创建备份: {os.path.basename(bak_path)}")
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(new_content)
+    print(f"✅ 成功修复: {filepath}")
 
-    new_open_fn = """export function openNotesDrawer(node) {
-  const docCtx = getActiveDocumentContext();
-  let targetNode = node || getPrimarySelectedNode() || docCtx?.mindData;
-  if (!targetNode) {
-    targetNode = docCtx?.mindData;
-  }
-  if (!targetNode) {
-    showToast("💡 暂无可用节点进行备注");
-    return;
-  }
+def patch_inline_editor(root):
+    path = os.path.join(root, "src", "js", "ui", "inline-editor.js")
+    if not os.path.exists(path):
+        print(f"⚠️ 未找到文件: {path}")
+        return
 
-  flushPendingNote();
-  activeNoteTabId = docCtx?.tabId || null;
-  activeNoteNodeId = targetNode.id;
-  committedNoteText = targetNode.note || "";
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
 
-  const drawer = document.getElementById("notes-drawer");
-  const title = document.getElementById("notes-drawer-title");
-  const textarea = document.getElementById("notes-textarea");
-  const preview = document.getElementById("notes-preview-content");
-  if (!drawer || !textarea) return;
+    # 替换 finish() 内部关于 isBlankDraft 自动销毁节点的逻辑
+    old_block = """    const isBlankDraft = (val === "" || val === "新主题" || val === "新分支");
+    if (isCancelled || (isNewNode && isBlankDraft)) {
+      if (isNewNode && ctx) {
+        abortDraftNodeCreation(ctx.tab, node.id);
+        ctx.markLayoutDirty(null);
+        if (ctx.tab) ctx.tab.isLayoutDirty = true;
+      }
+      onRender();
+      return;
+    }
 
-  if (title) title.innerText = (targetNode.icon ? targetNode.icon + " " : "") + (targetNode.text || "节点备注");
-  textarea.value = targetNode.note || "";
-  resetNoteHistory(textarea.value);
+    if (val !== "" && val !== originalText && ctx) {
+      ctx.executeCommand({
+        type: COMMANDS.SET_TEXT,
+        nodeId: node.id,
+        oldText: originalText,
+        newText: val
+      });
+      ctx.markLayoutDirty(node.id);
+      if (ctx.tab) ctx.tab.isLayoutDirty = true;
+      if (node.id === ctx.mindData?.id) {
+        if (!ctx.tab.filePath) ctx.tab.title = val;
+      }
+    }
+    syncInspectorUi(ctx);
+    onRender();"""
 
-  if (preview) {
-    preview.innerHTML = DOMPurify.sanitize(renderMarkdown(targetNode.note || ""));
-    bindPreviewInteractions(preview);
-  }
-  updateNotesStats(targetNode.note || "");
+    new_block = """    // 🌟 方案 C：占位符兜底，彻底关闭自动销毁机制，空输入自动填充默认文本，焦点坚挺停留在新节点上
+    if (val === "") {
+      val = node.todo ? "新待办" : (node.text || (isNewNode ? "新主题" : "新分支"));
+    }
 
-  drawer.classList.remove("hidden");
-  drawer.style.display = "flex";
-  drawer.style.transform = "translateX(0)";
+    if (val !== originalText && ctx) {
+      ctx.executeCommand({
+        type: COMMANDS.SET_TEXT,
+        nodeId: node.id,
+        oldText: originalText,
+        newText: val
+      });
+      delete node._cachedMetrics;
+      node._layoutDirty = true;
+      ctx.markLayoutDirty(node.id);
+      if (ctx.tab) ctx.tab.isLayoutDirty = true;
+      if (node.id === ctx.mindData?.id) {
+        if (!ctx.tab.filePath) ctx.tab.title = val;
+      }
+    } else {
+      node.text = val;
+      delete node._cachedMetrics;
+      node._layoutDirty = true;
+      if (ctx) ctx.markLayoutDirty(node.id);
+    }
 
-  // 默认进入编辑或预览模式
-  const hasContent = Boolean(targetNode.note && targetNode.note.trim());
-  if (hasContent) {
-    document.getElementById("tab-notes-preview")?.click();
-  } else {
-    document.getElementById("tab-notes-edit")?.click();
+    // 🌟 核心：确保焦点锁定在新节点本身，绝对不跳向父节点
+    if (ctx) {
+      ctx.selectNode(node.id);
+    }
+
+    syncInspectorUi(ctx);
+    onRender();"""
+
+    if old_block in content:
+        content = content.replace(old_block, new_block, 1)
+        backup_and_write(path, content)
+    else:
+        print("ℹ️ inline-editor.js 已处于方案 C 或目标模式不匹配。")
+
+def patch_outliner(root):
+    path = os.path.join(root, "src", "js", "render", "outliner.js")
+    if not os.path.exists(path):
+        print(f"⚠️ 未找到文件: {path}")
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # 替换 outliner.js 中 textDiv.onblur 的自动删除逻辑
+    old_blur = """    textDiv.onblur = () => {
+      if (isComposingIME) return;
+      const val = textDiv.innerText.trim();
+      // 🌟 防线 1：若节点未输入任何文字且无子节点（如回车新建后直接失焦），彻底移除该空节点，杜绝隐形幽灵节点
+      if (!val && (!node.children || node.children.length === 0)) {
+        const curIdx = parentNode.children ? parentNode.children.findIndex(c => c.id === node.id) : -1;
+        if (curIdx !== -1) {
+          executeCommand({
+            type: COMMANDS.REMOVE_NODE,
+            nodeId: node.id,
+            oldParentId: parentNode.id,
+            oldIndex: curIdx,
+            oldNode: node
+          });
+          if (ctx) {
+            ctx.markLayoutDirty(parentNode.id);
+            const fallbackNode = parentNode.children[Math.max(0, curIdx - 1)] || parentNode;
+            ctx.selectNode(fallbackNode.id);
+          }
+          renderOutliner(renderAppRef);
+          bus.emit(EVENTS.RENDER_APP);
+          return;
+        }
+      }
+      if (val !== node.text) {
+        executeCommand({
+          type: COMMANDS.SET_TEXT,
+          nodeId: node.id,
+          oldText: node.text,
+          newText: val || "新主题"
+        });
+      }
+    };"""
+
+    new_blur = """    textDiv.onblur = () => {
+      if (isComposingIME) return;
+      const val = textDiv.innerText.trim();
+      // 🌟 方案 C：大纲视图失焦不删除节点，自动填充占位文本并保持焦点
+      const finalVal = val || (node.todo ? "新待办" : (node.text || "新主题"));
+      textDiv.innerText = finalVal;
+      if (finalVal !== node.text) {
+        executeCommand({
+          type: COMMANDS.SET_TEXT,
+          nodeId: node.id,
+          oldText: node.text,
+          newText: finalVal
+        });
+        delete node._cachedMetrics;
+        node._layoutDirty = true;
+        if (ctx) ctx.markLayoutDirty(node.id);
+      }
+    };"""
+
+    if old_blur in content:
+        content = content.replace(old_blur, new_blur, 1)
+        backup_and_write(path, content)
+    else:
+        print("ℹ️ outliner.js 已经更新或模式未匹配。")
+
+def patch_history_safety(root):
+    path = os.path.join(root, "src", "js", "core", "history.js")
+    if not os.path.exists(path):
+        print(f"⚠️ 未找到文件: {path}")
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # 改进 abortDraftNodeCreation：即使被外部显式调用，也绝不无脑退回父级，而是优先退回兄弟节点
+    old_abort = """export function abortDraftNodeCreation(tab, nodeId) {
+  if (!tab || !tab.mindData || !nodeId) return;
+  const parent = findParent(nodeId, tab.mindData);
+  if (parent && parent.children) {
+    parent.children = parent.children.filter(c => c.id !== nodeId);
+    tab.selectedIds = new Set([parent.id]);
+    tab.isLayoutDirty = true;
+    rebuildTopologyIndex(tab.mindData);
+    logger.info("DraftAbort", `Draft node [${nodeId}] removed cleanly`);
   }
 }"""
 
-    if old_open_pattern.search(code):
-        code = old_open_pattern.sub(new_open_fn, code)
-        with open(notes_js_path, "w", encoding="utf-8") as f:
-            f.write(code)
-        print(f"[已修复] {notes_js_path}: openNotesDrawer 容错及唤起逻辑重构完毕")
+    new_abort = """export function abortDraftNodeCreation(tab, nodeId) {
+  if (!tab || !tab.mindData || !nodeId) return;
+  const parent = findParent(nodeId, tab.mindData);
+  if (parent && parent.children) {
+    const curIdx = parent.children.findIndex(c => c.id === nodeId);
+    const fallbackSibling = curIdx > 0 ? parent.children[curIdx - 1] : (curIdx < parent.children.length - 1 ? parent.children[curIdx + 1] : null);
+    parent.children = parent.children.filter(c => c.id !== nodeId);
+    // 🌟 安全兜底：优先退至前一个兄弟节点，无兄弟时才退回父节点
+    tab.selectedIds = new Set([fallbackSibling ? fallbackSibling.id : parent.id]);
+    tab.isLayoutDirty = true;
+    rebuildTopologyIndex(tab.mindData);
+    logger.info("DraftAbort", `Draft node [${nodeId}] removed cleanly`);
+  }
+}"""
+
+    if old_abort in content:
+        content = content.replace(old_abort, new_abort, 1)
+        backup_and_write(path, content)
     else:
-        print(f"[未匹配] {notes_js_path}，尝试精确定位替换 targetNode 判断")
-        code = code.replace(
-            'const targetNode = node || getPrimarySelectedNode();\n  if (!targetNode) {\n    showToast("💡 请先在画布或大纲中选中一个节点");\n    return;\n  }',
-            'const docCtx = getActiveDocumentContext();\n  let targetNode = node || getPrimarySelectedNode() || docCtx?.mindData;\n  if (!targetNode) return;'
-        )
-        with open(notes_js_path, "w", encoding="utf-8") as f:
-            f.write(code)
-        print(f"[已补充修复] {notes_js_path}")
+        print("ℹ️ history.js 已具有就近回退安全机制。")
 
+def main():
+    print("=" * 60)
+    print("🚀 YMind Pro - 方案 C (XMind式占位兜底) 一键注入程序")
+    print("=" * 60)
+    root = find_project_root()
+    print(f"📁 定位到项目根目录: {root}\n")
 
-# =========================================================================
-# 2. 补全 CSS: 确保 #notes-drawer 具有最高优先级定位、层级和完整 Apple HIG 样式
-# =========================================================================
-workspace_css_path = "src/css/workspace.css"
-if os.path.exists(workspace_css_path):
-    with open(workspace_css_path, "r", encoding="utf-8") as f:
-        css = f.read()
+    patch_inline_editor(root)
+    patch_outliner(root)
+    patch_history_safety(root)
 
-    notes_css = """
-/* ==========================================================================
-   📝 统一 Apple 原生 Markdown 备注抽屉 (Notes Drawer HIG)
-   ========================================================================== */
-.notes-drawer-panel {
-  position: fixed !important;
-  top: 44px !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  width: 440px !important;
-  max-width: 90vw !important;
-  background: rgba(255, 255, 255, 0.95) !important;
-  backdrop-filter: blur(36px) saturate(200%) !important;
-  -webkit-backdrop-filter: blur(36px) saturate(200%) !important;
-  border-left: 0.5px solid rgba(0, 0, 0, 0.1) !important;
-  box-shadow: -10px 0 36px rgba(0, 0, 0, 0.08) !important;
-  z-index: 8500 !important;
-  display: flex !important;
-  flex-direction: column !important;
-  box-sizing: border-box !important;
-  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1) !important;
-}
+    print("\n" + "=" * 60)
+    print("🎉 方案 C 修复成功！")
+    print("修复成果：")
+    print("  1. 新建节点在失焦/未输入时不再被系统强制删除。")
+    print("  2. 自动填入占位文本 ('新待办' 或 '新主题')，节点外框宽度实时适配。")
+    print("  3. 焦点与高亮框 100% 坚挺保留在新节点上，镜头零晃动、零跨层级跳转。")
+    print("=" * 60)
 
-.notes-drawer-panel.hidden {
-  display: none !important;
-  transform: translateX(100%) !important;
-  pointer-events: none !important;
-}
-
-[data-theme="dark"] .notes-drawer-panel {
-  background: rgba(20, 25, 36, 0.95) !important;
-  border-left-color: rgba(255, 255, 255, 0.1) !important;
-  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.5) !important;
-  color: #ffffff !important;
-}
-
-.notes-drawer-header {
-  height: 48px;
-  padding: 0 16px;
-  border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-}
-[data-theme="dark"] .notes-drawer-header {
-  border-bottom-color: rgba(255, 255, 255, 0.08);
-}
-
-.notes-header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.notes-title-text {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin: 0;
-}
-
-.notes-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.notes-tab-group {
-  display: inline-flex;
-  align-items: center;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 8px;
-  padding: 2px;
-  gap: 2px;
-}
-[data-theme="dark"] .notes-tab-group {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.notes-tab-btn {
-  padding: 4px 10px;
-  border: none;
-  background: transparent;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-.notes-tab-btn.active {
-  background: #ffffff;
-  color: var(--apple-blue);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-[data-theme="dark"] .notes-tab-btn.active {
-  background: #1e2638;
-  color: #38bdf8;
-}
-
-.notes-clear-btn {
-  background: transparent;
-  border: none;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: all 0.12s;
-}
-.notes-clear-btn:hover {
-  background: rgba(255, 59, 48, 0.08);
-  color: var(--apple-red);
-}
-
-.notes-toolbar {
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.02);
-  border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-[data-theme="dark"] .notes-toolbar {
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom-color: rgba(255, 255, 255, 0.06);
-}
-
-.note-tool-btn {
-  height: 24px;
-  padding: 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #ffffff;
-  border-radius: 5px;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all 0.12s;
-}
-.note-tool-btn:hover {
-  border-color: var(--apple-blue);
-  color: var(--apple-blue);
-}
-[data-theme="dark"] .note-tool-btn {
-  background: #1a2130;
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
-}
-
-.note-tool-sep {
-  width: 1px;
-  height: 14px;
-  background: rgba(0, 0, 0, 0.1);
-  margin: 0 2px;
-}
-
-.notes-body-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  position: relative;
-}
-
-.notes-editor-textarea {
-  flex: 1;
-  width: 100%;
-  border: none;
-  outline: none;
-  resize: none;
-  padding: 16px;
-  font-size: 13px;
-  line-height: 1.6;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  background: transparent;
-  color: var(--text-primary);
-  box-sizing: border-box;
-}
-
-.notes-preview-rendered {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  font-size: 13.5px;
-  line-height: 1.65;
-  color: var(--text-primary);
-  box-sizing: border-box;
-}
-
-.notes-stats-bar {
-  height: 28px;
-  padding: 0 14px;
-  border-top: 0.5px solid rgba(0, 0, 0, 0.06);
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: rgba(0, 0, 0, 0.02);
-  flex-shrink: 0;
-}
-[data-theme="dark"] .notes-stats-bar {
-  border-top-color: rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
-}
-"""
-
-    if ".notes-drawer-panel" not in css:
-        css += "\n" + notes_css
-        with open(workspace_css_path, "w", encoding="utf-8") as f:
-            f.write(css)
-        print(f"[已补全样式] {workspace_css_path}: 写入了 #notes-drawer 完整的绝对定位、毛玻璃与层级样式")
-    else:
-        print(f"[已存在] {workspace_css_path} 已包含抽屉样式")
-
-print("\n[所有修复执行完成] 请刷新页面，再次点击顶栏“备注”按钮或按 Alt+N！")
+if __name__ == "__main__":
+    main()

@@ -119,6 +119,7 @@ export async function handleLoadedFileContent(contentData, filePath, renderApp, 
   tab.boxStyle = res.loadedBox;
   tab.canvasBgColor = res.loadedBgColor;
   tab.canvasBgPattern = res.loadedBgPattern;
+  tab.todoCheckboxStyle = res.loadedTodoCheckboxStyle || getGlobalSettings().todoCheckboxStyle || "circle";
   tab.isDirty = false;
   state.isLayoutDirty = true;
   tab.versions = res.isEncrypted ? [] : (res.loadedVersions || []);
@@ -330,6 +331,17 @@ export function initEventListeners(renderApp) {
     const nodeHitPad = Math.max(12, 14 / s);
     const node = curTab?.spatialIndex?.pickNode(worldX, worldY, nodeHitPad, isVisible);
     if (node) {
+      // 🌟 核心防穿透：如果双击落在了复选框区域，严禁打开编辑框！
+      if (isClickOnCheckbox(node, worldX, worldY)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const editor = document.getElementById("inline-editor");
+        if (editor && !editor.classList.contains("hidden")) {
+          editor.blur();
+        }
+        toggleTaskDone(node);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       startEditNode(node, state, () => bus.emit(EVENTS.RENDER_APP), false, docCtx);

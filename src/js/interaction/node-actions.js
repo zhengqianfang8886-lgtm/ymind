@@ -66,21 +66,89 @@ export function addSiblingNode(customCtxOrRender = null, maybeCtx = null) {
   const parent = findParent(p.id, ctx.mindData);
   if (!parent) return;
 
+  // 🌟 决策边界 1：空待办按 Enter 自动退出待办模式 (Auto-Breakout)
+  if (p.todo && (!p.text || p.text.trim() === "" || p.text === "新主题" || p.text === "新分支")) {
+    const subCommands = [{
+      type: COMMANDS.UPDATE_ATTRS,
+      nodeId: p.id,
+      oldAttrs: { todo: true, done: Boolean(p.done), textDecoration: p.textDecoration || "none" },
+      newAttrs: { todo: false, done: false, textDecoration: "none" }
+    }];
+
+    const remainingTodos = (parent.children || []).filter(c => c.id !== p.id && c.todo);
+    let newPrg = null;
+    if (remainingTodos.length > 0) {
+      const doneCount = remainingTodos.filter(c => c.done).length;
+      newPrg = `${doneCount}/${remainingTodos.length}`;
+    }
+    if (parent.progress !== newPrg) {
+      subCommands.push({
+        type: COMMANDS.UPDATE_ATTRS,
+        nodeId: parent.id,
+        oldAttrs: { progress: parent.progress || null },
+        newAttrs: { progress: newPrg }
+      });
+      delete parent._cachedMetrics;
+      parent._layoutDirty = true;
+    }
+
+    if (subCommands.length === 1) ctx.executeCommand(subCommands[0]);
+    else ctx.executeCompoundCommand(subCommands);
+
+    delete p._cachedMetrics;
+    p._layoutDirty = true;
+    ctx.markLayoutDirty(p.id);
+    ctx.markLayoutDirty(parent.id);
+    ensureLayoutReady(ctx.tab, true);
+    syncInspectorUi(ctx);
+    bus.emit(EVENTS.RENDER_APP);
+    showToast("📄 已退出待办模式");
+    return;
+  }
+
+  // 🌟 决策边界 2：继承待办属性，完成状态强制重置为 false
+  const isTodoInherited = Boolean(p.todo);
+
   const sib = {
     id: "node_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
     text: "新主题",
     branchDirection: p.branchDirection || (parent.id === ctx.focusedRootId ? "right" : null),
     collapsed: false,
+    todo: isTodoInherited,
+    done: false,
     children: []
   };
   const idx = parent.children.findIndex(c => c.id === p.id);
 
-  ctx.executeCommand({
+  const subCommands = [{
     type: COMMANDS.INSERT_NODE,
     parentId: parent.id,
     index: idx + 1,
     node: sib
-  });
+  }];
+
+  if (isTodoInherited) {
+    const currentTodos = (parent.children || []).filter(c => c.todo);
+    const totalTodos = currentTodos.length + 1;
+    const doneCount = currentTodos.filter(c => c.done).length;
+    const newPrg = `${doneCount}/${totalTodos}`;
+    if (parent.progress !== newPrg) {
+      subCommands.push({
+        type: COMMANDS.UPDATE_ATTRS,
+        nodeId: parent.id,
+        oldAttrs: { progress: parent.progress || null },
+        newAttrs: { progress: newPrg }
+      });
+      delete parent._cachedMetrics;
+      parent._layoutDirty = true;
+    }
+  }
+
+  if (subCommands.length === 1) {
+    ctx.executeCommand(subCommands[0]);
+  } else {
+    ctx.executeCompoundCommand(subCommands);
+  }
 
   ctx.selectNode(sib.id);
   ctx.markLayoutDirty(parent.id);
@@ -88,7 +156,6 @@ export function addSiblingNode(customCtxOrRender = null, maybeCtx = null) {
 
   syncInspectorUi(ctx);
   bus.emit(EVENTS.RENDER_APP);
-  // 🌟 新建节点进入输入前瞬时就位相机，杜绝动画过渡中坐标漂移导致输入框挂错位置
   locateFocusedNode(sib.id, false, ctx, "create");
   bus.emit(EVENTS.START_NODE_EDIT, { node: sib, isNewNode: true, ctx });
 }
@@ -154,8 +221,7 @@ export function deleteSelectedNodes(customCtxOrRender = null, maybeCtx = null) {
       let newPrg = null;
       if (todoChildren.length > 0) {
         const doneCount = todoChildren.filter(c => c.done).length;
-        const pct = Math.round((doneCount / todoChildren.length) * 100);
-        newPrg = `${pct}%`;
+        newPrg = `${doneCount}/${todoChildren.length}`;
       }
       if (parent.progress !== newPrg) {
         subCommands.push({
@@ -164,6 +230,8 @@ export function deleteSelectedNodes(customCtxOrRender = null, maybeCtx = null) {
           oldAttrs: { progress: parent.progress || null },
           newAttrs: { progress: newPrg }
         });
+        delete parent._cachedMetrics;
+        parent._layoutDirty = true;
         ctx.markLayoutDirty(parent.id);
       }
     }
@@ -280,8 +348,7 @@ export function cutSelectedNodes(customCtx = null, explicitNode = null) {
       let newPrg = null;
       if (todoChildren.length > 0) {
         const doneCount = todoChildren.filter(c => c.done).length;
-        const pct = Math.round((doneCount / todoChildren.length) * 100);
-        newPrg = `${pct}%`;
+        newPrg = `${doneCount}/${todoChildren.length}`;
       }
       if (parent.progress !== newPrg) {
         subCommands.push({
@@ -290,6 +357,8 @@ export function cutSelectedNodes(customCtx = null, explicitNode = null) {
           oldAttrs: { progress: parent.progress || null },
           newAttrs: { progress: newPrg }
         });
+        delete parent._cachedMetrics;
+        parent._layoutDirty = true;
         ctx.markLayoutDirty(parent.id);
       }
     }
