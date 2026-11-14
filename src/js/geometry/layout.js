@@ -21,7 +21,7 @@ export const MAX_ROOT_TEXT_WIDTH = 380;
 const NO_LINE_START = /^[!%),.:;?\]\}\u2019\u201d\u2026\u2014\u2013\u3001\u3002\uFF0C\uFF0E\uFF1A\uFF1B\uFF1F\uFF01\uFF09\u3009\u300B\u300D\u300F\u3011\u3015\uFF5D\u002F\u0025\u00B0]/;
 const NO_LINE_END = /[(\{\[\u2018\u201c\u3008\u300a\u300c\u300e\u3010\u3014\uFF08\uFF3B\uFF5B]$/;
 
-export function wrapTextLines(text, fontSize, maxWidth) {
+export function wrapTextLines(text, fontSize, maxWidth, fontWeight = "500", fontStyle = "normal") {
   const raw = String(text ?? "");
   if (!raw) return [""];
   const paragraphs = raw.split(/\r?\n/);
@@ -44,12 +44,12 @@ export function wrapTextLines(text, fontSize, maxWidth) {
 
     for (let t = 0; t < tokens.length; t++) {
       const token = tokens[t];
-      const tokenW = getTextLineWidth(token, fontSize);
+      const tokenW = getTextLineWidth(token, fontSize, fontWeight, fontStyle);
 
       if (tokenW > maxWidth) {
         for (let c = 0; c < token.length; c++) {
           const ch = token[c];
-          const chW = getTextLineWidth(ch, fontSize);
+          const chW = getTextLineWidth(ch, fontSize, fontWeight, fontStyle);
           if (curWidth + chW > maxWidth && curLine.length > 0) {
             if (NO_LINE_START.test(ch) && curWidth + chW <= maxWidth + fontSize * 0.9) {
               curLine += ch;
@@ -310,19 +310,13 @@ export function getEffectiveNodeTypography(node, level = 0, focusedRootId = "roo
 export function measureNodeSize(node, level, focusedRootId) {
   if (!node) return;
 
-  // 🌟 待办进度自动聚合与自愈：若该节点拥有待办子项，以子项真实状态权威聚合为形如 "0/3" 的数量胶囊
+  // 🌟 仅提取纯只读的待办子项统计状态用于几何测量，严禁原地篡改 node.progress 业务实体
+  node._todoCountStr = null;
   if (node.children && Array.isArray(node.children)) {
     const todoChildren = node.children.filter(c => c && c.todo);
     if (todoChildren.length > 0) {
       const doneCount = todoChildren.filter(c => c.done).length;
-      const rollupStr = `${doneCount}/${todoChildren.length}`;
-      if (node.progress !== rollupStr) {
-        node.progress = rollupStr;
-        delete node._cachedMetrics;
-      }
-    } else if (node.progress && String(node.progress).includes('/')) {
-      node.progress = null;
-      delete node._cachedMetrics;
+      node._todoCountStr = `${doneCount}/${todoChildren.length}`;
     }
   }
   const isRoot = node.id === focusedRootId;
@@ -350,6 +344,7 @@ export function measureNodeSize(node, level, focusedRootId) {
       sig.hasLink === Boolean(node.link) &&
       sig.todoState === (node.todo ? (node.done ? 2 : 1) : 0) &&
       sig.dueDate === (node.dueDate || null) &&
+      sig.completedAt === (node.completedAt || null) &&
       sig.duration === (node.duration || null) &&
       sig.tagsLen === tagsLen &&
       node.width && node.height) {
@@ -358,7 +353,7 @@ export function measureNodeSize(node, level, focusedRootId) {
 
   const lineHeight = Math.round(fontSize * 1.32);
   const maxAllowedTextW = isRoot ? MAX_ROOT_TEXT_WIDTH : MAX_NODE_TEXT_WIDTH;
-  const lines = wrapTextLines(node.text, fontSize, maxAllowedTextW);
+  const lines = wrapTextLines(node.text, fontSize, maxAllowedTextW, fontWeight, fontStyle);
 
   let maxLineW = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -438,6 +433,7 @@ export function measureNodeSize(node, level, focusedRootId) {
     hasNote: Boolean(node.note),
     hasLink: Boolean(node.link),
     hasDuration: Boolean(node.duration),
+    completedAt: node.completedAt || null,
     todoState: (node.todo ? (node.done ? 2 : 1) : 0),
     tagsLen
   };

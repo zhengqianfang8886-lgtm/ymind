@@ -1,242 +1,248 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-YMind Pro Studio - 方案 C (XMind式占位兜底) 自动注入脚本
-- 自动备份原始文件 (.bak)
-- 彻底移除新建节点空内容失焦自动删除逻辑
-- 保证焦点 100% 停留在新节点上，绝不跳回父节点
-- 待办节点兜底为 "新待办"，普通节点兜底为 "新主题"/"新分支"
-- 全面覆盖画布模式与大纲视图
+YMind Pro - 任务耗时结构化与待办进度类型治理自动化脚本 (Step 2)
 """
 
 import os
 import sys
 import shutil
 
-def find_project_root():
-    candidates = [os.getcwd(), os.path.dirname(os.path.abspath(__file__))]
-    for c in candidates:
-        if os.path.isdir(os.path.join(c, "src", "js")):
-            return c
-    print("❌ 错误：未找到项目 src/js 目录，请在项目根目录下运行此脚本。")
-    sys.exit(1)
-
-def backup_and_write(filepath, new_content):
+def backup_file(filepath):
     bak_path = filepath + ".bak"
     if not os.path.exists(bak_path):
-        shutil.copyfile(filepath, bak_path)
-        print(f"📦 已创建备份: {os.path.basename(bak_path)}")
+        shutil.copy2(filepath, bak_path)
+        print(f"[Backup] 已备份: {bak_path}")
+
+def update_file(filepath, search_str, replace_str, description=""):
+    if not os.path.exists(filepath):
+        print(f"[Error] 未找到目标文件: {filepath}", file=sys.stderr)
+        return False
+    
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if replace_str in content:
+        print(f"[Skip] {filepath} 已包含修改 ({description})，跳过")
+        return True
+
+    if search_str not in content:
+        print(f"[Fail] 未能在 {filepath} 定位锚点 ({description})", file=sys.stderr)
+        return False
+
+    backup_file(filepath)
+    new_content = content.replace(search_str, replace_str, 1)
+
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(new_content)
-    print(f"✅ 成功修复: {filepath}")
+    
+    print(f"[Success] 成功更新: {filepath} ({description})")
+    return True
 
-def patch_inline_editor(root):
-    path = os.path.join(root, "src", "js", "ui", "inline-editor.js")
-    if not os.path.exists(path):
-        print(f"⚠️ 未找到文件: {path}")
-        return
 
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+def step1_duration_engine():
+    fp = os.path.join("src", "js", "ui", "task-duration.js")
+    
+    # 增加分钟换算与标准格式化
+    old_anchor = 'export function formatDurationText(raw) {'
+    new_engine = '''/**
+ * 🌟 核心算法：将任意自然输入换算为标准绝对分钟数 (Duration Minutes)
+ * 1d = 8h = 480m (标准工时制)
+ */
+export function parseDurationToMinutes(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase().replace(/\\s+/g, "");
+  if (!s) return null;
 
-    # 替换 finish() 内部关于 isBlankDraft 自动销毁节点的逻辑
-    old_block = """    const isBlankDraft = (val === "" || val === "新主题" || val === "新分支");
-    if (isCancelled || (isNewNode && isBlankDraft)) {
-      if (isNewNode && ctx) {
-        abortDraftNodeCreation(ctx.tab, node.id);
-        ctx.markLayoutDirty(null);
-        if (ctx.tab) ctx.tab.isLayoutDirty = true;
+  // 纯数字默认按分钟
+  if (/^\\d+$/.test(s)) return parseInt(s, 10);
+
+  // 天 (d / 天)
+  const dMatch = s.match(/^([0-9.]+)(d|天)$/);
+  if (dMatch) return Math.round(parseFloat(dMatch[1]) * 8 * 60);
+
+  // 小时 (h / 小时 / hr / hrs)
+  const hMatch = s.match(/^([0-9.]+)(h|小时|hr|hrs)$/);
+  if (hMatch) return Math.round(parseFloat(hMatch[1]) * 60);
+
+  // 分钟 (m / 分钟 / min / mins)
+  const mMatch = s.match(/^([0-9.]+)(m|分钟|min|mins)$/);
+  if (mMatch) return Math.round(parseFloat(mMatch[1]));
+
+  return null;
+}
+
+/**
+ * 🌟 绝对分钟数标准输出展示
+ */
+export function formatMinutesToBadge(minutes) {
+  if (typeof minutes !== "number" || isNaN(minutes) || minutes <= 0) return null;
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes % 480 === 0) return `${minutes / 480}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  const hrs = (minutes / 60).toFixed(1).replace(/\\.0$/, "");
+  return `${hrs}h`;
+}
+
+export function formatDurationText(raw) {'''
+    ok1 = update_file(fp, old_anchor, new_engine, "task-duration.js 注入标准分钟换算引擎")
+
+    # 改造保存逻辑，写入 durationMinutes 与标准化字符串
+    old_save = '''    const rawVal = inputEl?.value?.trim() || "";
+    const cleanVal = formatDurationText(rawVal);
+    const docCtx = getActiveDocumentContext();
+
+    docCtx?.executeCommand({
+      type: COMMANDS.UPDATE_ATTRS,
+      nodeId: node.id,
+      oldAttrs: { duration: node.duration || null },
+      newAttrs: { duration: cleanVal }
+    });'''
+
+    new_save = '''    const rawVal = inputEl?.value?.trim() || "";
+    const mins = parseDurationToMinutes(rawVal);
+    const cleanVal = mins ? formatMinutesToBadge(mins) : formatDurationText(rawVal);
+    const docCtx = getActiveDocumentContext();
+
+    docCtx?.executeCommand({
+      type: COMMANDS.UPDATE_ATTRS,
+      nodeId: node.id,
+      oldAttrs: { 
+        duration: node.duration || null,
+        durationMinutes: node.durationMinutes || null
+      },
+      newAttrs: { 
+        duration: cleanVal,
+        durationMinutes: mins
       }
-      onRender();
-      return;
-    }
+    });'''
+    ok2 = update_file(fp, old_save, new_save, "promptEditDuration 保存时标准化分钟持久化")
+    return ok1 and ok2
 
-    if (val !== "" && val !== originalText && ctx) {
-      ctx.executeCommand({
-        type: COMMANDS.SET_TEXT,
-        nodeId: node.id,
-        oldText: originalText,
-        newText: val
-      });
-      ctx.markLayoutDirty(node.id);
-      if (ctx.tab) ctx.tab.isLayoutDirty = true;
-      if (node.id === ctx.mindData?.id) {
-        if (!ctx.tab.filePath) ctx.tab.title = val;
-      }
-    }
-    syncInspectorUi(ctx);
-    onRender();"""
 
-    new_block = """    // 🌟 方案 C：占位符兜底，彻底关闭自动销毁机制，空输入自动填充默认文本，焦点坚挺停留在新节点上
-    if (val === "") {
-      val = node.todo ? "新待办" : (node.text || (isNewNode ? "新主题" : "新分支"));
-    }
+def step2_types_and_serializer():
+    # 1. types.d.ts
+    fp_types = os.path.join("src", "types.d.ts")
+    t_old = '  duration?: string | null;'
+    t_new = '  duration?: string | null;\n  durationMinutes?: number | null;'
+    ok1 = update_file(fp_types, t_old, t_new, "types.d.ts 增加 durationMinutes 属性")
 
-    if (val !== originalText && ctx) {
-      ctx.executeCommand({
-        type: COMMANDS.SET_TEXT,
-        nodeId: node.id,
-        oldText: originalText,
-        newText: val
-      });
-      delete node._cachedMetrics;
-      node._layoutDirty = true;
-      ctx.markLayoutDirty(node.id);
-      if (ctx.tab) ctx.tab.isLayoutDirty = true;
-      if (node.id === ctx.mindData?.id) {
-        if (!ctx.tab.filePath) ctx.tab.title = val;
-      }
-    } else {
-      node.text = val;
-      delete node._cachedMetrics;
-      node._layoutDirty = true;
-      if (ctx) ctx.markLayoutDirty(node.id);
-    }
+    # 2. serializer.js
+    fp_serial = os.path.join("src", "js", "core", "serializer.js")
+    s_old1 = '  const duration = data.duration || node.duration;\n  if (duration) out.duration = duration;'
+    s_new1 = '''  const duration = data.duration || node.duration;
+  if (duration) out.duration = duration;
+  const durationMinutes = data.durationMinutes !== undefined ? data.durationMinutes : node.durationMinutes;
+  if (typeof durationMinutes === "number") out.durationMinutes = durationMinutes;'''
+    ok2 = update_file(fp_serial, s_old1, s_new1, "serializer.js compactMindNode 增加 durationMinutes")
 
-    // 🌟 核心：确保焦点锁定在新节点本身，绝对不跳向父节点
-    if (ctx) {
-      ctx.selectNode(node.id);
-    }
+    s_old2 = '    duration: data.duration || n.duration || null,'
+    s_new2 = '''    duration: data.duration || n.duration || null,
+    durationMinutes: (typeof data.durationMinutes === "number") ? data.durationMinutes : ((typeof n.durationMinutes === "number") ? n.durationMinutes : null),'''
+    ok3 = update_file(fp_serial, s_old2, s_new2, "serializer.js normalizeMindNode 增加 durationMinutes")
+    return ok1 and ok2 and ok3
 
-    syncInspectorUi(ctx);
-    onRender();"""
 
-    if old_block in content:
-        content = content.replace(old_block, new_block, 1)
-        backup_and_write(path, content)
-    else:
-        print("ℹ️ inline-editor.js 已处于方案 C 或目标模式不匹配。")
+def step3_inspector_duration():
+    fp = os.path.join("src", "js", "ui", "inspector.js")
+    i_import_old = 'import { promptEditDuration } from "./task-duration.js";'
+    i_import_new = 'import { promptEditDuration, parseDurationToMinutes, formatMinutesToBadge } from "./task-duration.js";'
+    ok1 = update_file(fp, i_import_old, i_import_new, "inspector.js 引入标准化耗时工具函数")
 
-def patch_outliner(root):
-    path = os.path.join(root, "src", "js", "render", "outliner.js")
-    if not os.path.exists(path):
-        print(f"⚠️ 未找到文件: {path}")
-        return
+    old_dur_pill = '''    pill.onclick = (e) => {
+      e.stopPropagation();
+      const val = pill.dataset.dur;
+      const ctx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || ctx?.mindData;
+      if (primary && ctx) {
+        ctx.executeCommand({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: primary.id,
+          oldAttrs: { duration: primary.duration || null },
+          newAttrs: { duration: val }
+        });'''
+    new_dur_pill = '''    pill.onclick = (e) => {
+      e.stopPropagation();
+      const val = pill.dataset.dur;
+      const mins = parseDurationToMinutes(val);
+      const cleanVal = mins ? formatMinutesToBadge(mins) : val;
+      const ctx = getActiveDocumentContext();
+      const primary = getPrimarySelectedNode() || ctx?.mindData;
+      if (primary && ctx) {
+        ctx.executeCommand({
+          type: COMMANDS.UPDATE_ATTRS,
+          nodeId: primary.id,
+          oldAttrs: { duration: primary.duration || null, durationMinutes: primary.durationMinutes || null },
+          newAttrs: { duration: cleanVal, durationMinutes: mins }
+        });'''
+    ok2 = update_file(fp, old_dur_pill, new_dur_pill, "inspector.js 快捷预设按钮写入标准化耗时")
+    return ok1 and ok2
 
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
 
-    # 替换 outliner.js 中 textDiv.onblur 的自动删除逻辑
-    old_blur = """    textDiv.onblur = () => {
-      if (isComposingIME) return;
-      const val = textDiv.innerText.trim();
-      // 🌟 防线 1：若节点未输入任何文字且无子节点（如回车新建后直接失焦），彻底移除该空节点，杜绝隐形幽灵节点
-      if (!val && (!node.children || node.children.length === 0)) {
-        const curIdx = parentNode.children ? parentNode.children.findIndex(c => c.id === node.id) : -1;
-        if (curIdx !== -1) {
-          executeCommand({
-            type: COMMANDS.REMOVE_NODE,
-            nodeId: node.id,
-            oldParentId: parentNode.id,
-            oldIndex: curIdx,
-            oldNode: node
-          });
-          if (ctx) {
-            ctx.markLayoutDirty(parentNode.id);
-            const fallbackNode = parentNode.children[Math.max(0, curIdx - 1)] || parentNode;
-            ctx.selectNode(fallbackNode.id);
-          }
-          renderOutliner(renderAppRef);
-          bus.emit(EVENTS.RENDER_APP);
-          return;
-        }
-      }
-      if (val !== node.text) {
-        executeCommand({
-          type: COMMANDS.SET_TEXT,
-          nodeId: node.id,
-          oldText: node.text,
-          newText: val || "新主题"
-        });
-      }
-    };"""
-
-    new_blur = """    textDiv.onblur = () => {
-      if (isComposingIME) return;
-      const val = textDiv.innerText.trim();
-      // 🌟 方案 C：大纲视图失焦不删除节点，自动填充占位文本并保持焦点
-      const finalVal = val || (node.todo ? "新待办" : (node.text || "新主题"));
-      textDiv.innerText = finalVal;
-      if (finalVal !== node.text) {
-        executeCommand({
-          type: COMMANDS.SET_TEXT,
-          nodeId: node.id,
-          oldText: node.text,
-          newText: finalVal
-        });
+def step4_layout_clean_side_effect():
+    fp = os.path.join("src", "js", "geometry", "layout.js")
+    # 消除 measureNodeSize 内部篡改 node.progress 的副作用，改为仅依据实际子节点计算展示所需宽度，不污染 node.progress
+    old_side_effect = '''  // 🌟 待办进度自动聚合与自愈：若该节点拥有待办子项，以子项真实状态权威聚合为形如 "0/3" 的数量胶囊
+  if (node.children && Array.isArray(node.children)) {
+    const todoChildren = node.children.filter(c => c && c.todo);
+    if (todoChildren.length > 0) {
+      const doneCount = todoChildren.filter(c => c.done).length;
+      const rollupStr = `${doneCount}/${todoChildren.length}`;
+      if (node.progress !== rollupStr) {
+        node.progress = rollupStr;
         delete node._cachedMetrics;
-        node._layoutDirty = true;
-        if (ctx) ctx.markLayoutDirty(node.id);
       }
-    };"""
+    } else if (node.progress && String(node.progress).includes('/')) {
+      node.progress = null;
+      delete node._cachedMetrics;
+    }
+  }'''
 
-    if old_blur in content:
-        content = content.replace(old_blur, new_blur, 1)
-        backup_and_write(path, content)
-    else:
-        print("ℹ️ outliner.js 已经更新或模式未匹配。")
+    new_clean_effect = '''  // 🌟 仅提取纯只读的待办子项统计状态用于几何测量，严禁原地篡改 node.progress 业务实体
+  node._todoCountStr = null;
+  if (node.children && Array.isArray(node.children)) {
+    const todoChildren = node.children.filter(c => c && c.todo);
+    if (todoChildren.length > 0) {
+      const doneCount = todoChildren.filter(c => c.done).length;
+      node._todoCountStr = `${doneCount}/${todoChildren.length}`;
+    }
+  }'''
+    ok = update_file(fp, old_side_effect, new_clean_effect, "layout.js 消除尺寸测量函数中的业务数据篡改副作用")
+    return ok
 
-def patch_history_safety(root):
-    path = os.path.join(root, "src", "js", "core", "history.js")
-    if not os.path.exists(path):
-        print(f"⚠️ 未找到文件: {path}")
-        return
-
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # 改进 abortDraftNodeCreation：即使被外部显式调用，也绝不无脑退回父级，而是优先退回兄弟节点
-    old_abort = """export function abortDraftNodeCreation(tab, nodeId) {
-  if (!tab || !tab.mindData || !nodeId) return;
-  const parent = findParent(nodeId, tab.mindData);
-  if (parent && parent.children) {
-    parent.children = parent.children.filter(c => c.id !== nodeId);
-    tab.selectedIds = new Set([parent.id]);
-    tab.isLayoutDirty = true;
-    rebuildTopologyIndex(tab.mindData);
-    logger.info("DraftAbort", `Draft node [${nodeId}] removed cleanly`);
-  }
-}"""
-
-    new_abort = """export function abortDraftNodeCreation(tab, nodeId) {
-  if (!tab || !tab.mindData || !nodeId) return;
-  const parent = findParent(nodeId, tab.mindData);
-  if (parent && parent.children) {
-    const curIdx = parent.children.findIndex(c => c.id === nodeId);
-    const fallbackSibling = curIdx > 0 ? parent.children[curIdx - 1] : (curIdx < parent.children.length - 1 ? parent.children[curIdx + 1] : null);
-    parent.children = parent.children.filter(c => c.id !== nodeId);
-    // 🌟 安全兜底：优先退至前一个兄弟节点，无兄弟时才退回父节点
-    tab.selectedIds = new Set([fallbackSibling ? fallbackSibling.id : parent.id]);
-    tab.isLayoutDirty = true;
-    rebuildTopologyIndex(tab.mindData);
-    logger.info("DraftAbort", `Draft node [${nodeId}] removed cleanly`);
-  }
-}"""
-
-    if old_abort in content:
-        content = content.replace(old_abort, new_abort, 1)
-        backup_and_write(path, content)
-    else:
-        print("ℹ️ history.js 已具有就近回退安全机制。")
 
 def main():
-    print("=" * 60)
-    print("🚀 YMind Pro - 方案 C (XMind式占位兜底) 一键注入程序")
-    print("=" * 60)
-    root = find_project_root()
-    print(f"📁 定位到项目根目录: {root}\n")
+    print("=" * 65)
+    print("🚀 YMind Pro - 耗时结构化与待办进度类型治理升级 (Step 2)")
+    print("=" * 65)
 
-    patch_inline_editor(root)
-    patch_outliner(root)
-    patch_history_safety(root)
+    if not os.path.exists("src"):
+        print("[Error] 请在包含 src/ 的项目根目录下执行！", file=sys.stderr)
+        sys.exit(1)
 
-    print("\n" + "=" * 60)
-    print("🎉 方案 C 修复成功！")
-    print("修复成果：")
-    print("  1. 新建节点在失焦/未输入时不再被系统强制删除。")
-    print("  2. 自动填入占位文本 ('新待办' 或 '新主题')，节点外框宽度实时适配。")
-    print("  3. 焦点与高亮框 100% 坚挺保留在新节点上，镜头零晃动、零跨层级跳转。")
-    print("=" * 60)
+    steps = [
+        ("任务耗时领域解析与格式化引擎", step1_duration_engine),
+        ("数据模型与序列化持久层扩展", step2_types_and_serializer),
+        ("检查器交互耗时标准化", step3_inspector_duration),
+        ("消除纯几何测量函数副作用", step4_layout_clean_side_effect)
+    ]
+
+    all_ok = True
+    for name, func in steps:
+        print(f"\n▶ 正在执行 {name}...")
+        if not func():
+            all_ok = False
+            print(f"[Warning] {name} 处理异常，请核对。")
+
+    print("\n" + "=" * 65)
+    if all_ok:
+        print("✅ 升级已全部成功！")
+        print("💡 效果说明：")
+        print("  1. 任务耗时输入（如 90分钟、1.5h）在入库时自动标准化为 durationMinutes: 90。")
+        print("  2. measureNodeSize 成为纯净的尺寸计算函数，不再背地里修改 node.progress。")
+    else:
+        print("⚠️ 存在未匹配条目，可根据自动生成的 .bak 备份回滚。")
+    print("=" * 65)
 
 if __name__ == "__main__":
     main()

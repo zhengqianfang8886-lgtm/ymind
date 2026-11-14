@@ -159,7 +159,26 @@ export async function handleLoadedFileContent(contentData, filePath, renderApp, 
 // 🌟 全局物理文件保存排队互斥锁 (Save Mutex Queue)，防止自动与手动并发击穿文件
 const fileSaveLocks = new Set();
 
+export function flushActiveEditor() {
+  const inlineEditor = document.getElementById("inline-editor");
+  if (inlineEditor && !inlineEditor.classList.contains("hidden")) {
+    inlineEditor.blur();
+  }
+  const activeOutliner = document.activeElement?.closest?.(".outliner-text-input");
+  if (activeOutliner && typeof activeOutliner.blur === "function") {
+    activeOutliner.blur();
+  }
+  const activeTitle = document.activeElement?.closest?.(".outliner-title-input");
+  if (activeTitle && typeof activeTitle.blur === "function") {
+    activeTitle.blur();
+  }
+  try {
+    import("./notes.js").then(m => m.flushPendingNote());
+  } catch {}
+}
+
 export async function performSave(customTab = null, silent = false) {
+  flushActiveEditor();
   let tab = customTab || getActiveTab();
   if (!tab) return;
   
@@ -339,7 +358,7 @@ export function initEventListeners(renderApp) {
         if (editor && !editor.classList.contains("hidden")) {
           editor.blur();
         }
-        toggleTaskDone(node);
+        // mousedown 已执行翻转，此处仅阻断打开编辑输入框
         return;
       }
       e.preventDefault();

@@ -219,13 +219,20 @@ export async function restoreSession() {
     const idbTime = (idbRaw && typeof idbRaw.timestamp === "number") ? idbRaw.timestamp : 0;
     const syncTime = (syncRaw && typeof syncRaw.timestamp === "number") ? syncRaw.timestamp : 0;
 
-    // 🌟 P1-6 防御：按时间戳竞争仲裁，优先采纳更新的同步降级暂存，杜绝旧 IndexedDB 覆盖最新数据
-    if (syncTime > idbTime && Array.isArray(syncRaw?.tabs) && syncRaw.tabs.length > 0) {
+    // 🌟 安全增强：优先采纳包含完整明文/密文数据的草稿包，杜绝 mindData:null 冲刷覆盖真实数据
+    const idbHasContent = Array.isArray(idbRaw?.tabs) && idbRaw.tabs.some(t => Boolean(t.mindData || t.encryptedVault));
+    const syncHasContent = Array.isArray(syncRaw?.tabs) && syncRaw.tabs.some(t => Boolean(t.mindData || t.encryptedVault));
+
+    if (idbHasContent && !syncHasContent) {
+      raw = idbRaw;
+    } else if (syncHasContent && !idbHasContent) {
+      raw = syncRaw;
+    } else if (syncTime > idbTime && Array.isArray(syncRaw?.tabs) && syncRaw.tabs.length > 0) {
       raw = syncRaw;
     } else if (Array.isArray(idbRaw?.tabs) && idbRaw.tabs.length > 0) {
       raw = idbRaw;
-    } else if (Array.isArray(syncRaw?.tabs) && syncRaw.tabs.length > 0) {
-      raw = syncRaw;
+    } else {
+      raw = syncRaw || idbRaw;
     }
     if (!raw || !Array.isArray(raw.tabs) || raw.tabs.length === 0) {
       return false;

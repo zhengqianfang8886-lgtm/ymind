@@ -80,9 +80,14 @@ export function calculateFullTreeDrop(worldX, worldY, dragNode, dragNodes = [], 
       };
     }
   } else {
+    const isMindmapRoot = (structure === "mindmap" && parent.id === docCtx.focusedRootId);
+    let targetDirection = dragNode.branchDirection;
+    if (isMindmapRoot) {
+      targetDirection = (worldX < parent.x) ? "left" : "right";
+    }
     const sameSide = siblings.filter(s => {
-      if (structure === "mindmap" && parent.id === docCtx.focusedRootId) {
-        return s.branchDirection === dragNode.branchDirection;
+      if (isMindmapRoot) {
+        return s.branchDirection === targetDirection;
       }
       return true;
     });

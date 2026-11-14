@@ -1,3 +1,4 @@
+import { getGlobalSettings } from "../core/config.js";
 import { getDurationBadgeStyle } from "../ui/task-duration.js";
 import { drawAppleSquircle } from "../geometry/squircle.js";
 import { getNodeTextGeometry } from "../geometry/text-metrics.js";
@@ -393,7 +394,7 @@ export function drawNodeContent(ctx, node, level, isRootOfView, docCtx, currentS
   // 5.5 🌟 轻量截止日与倒计时胶囊 (自适应色彩变色)
   node._duePillRect = null;
   if (node.dueDate && currentScale >= 0.45) {
-    const dueInfo = getDueDateStatus(node.dueDate, Boolean(node.done), isDarkCanvas);
+    const dueInfo = getDueDateStatus(node.dueDate, Boolean(node.done), isDarkCanvas, node.completedAt);
     if (dueInfo) {
       currentOffset += 4;
       const pillW = measureTextWidth(dueInfo.label, 8.5, "600", "normal", false) + 12;

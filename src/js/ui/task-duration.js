@@ -6,6 +6,45 @@ import { bus, EVENTS } from "../core/event-bus.js";
 /**
  * 规范化格式化自然语言耗时文本 (如 "2小时" -> "2h", "30分钟" -> "30m")
  */
+/**
+ * 🌟 核心算法：将任意自然输入换算为标准绝对分钟数 (Duration Minutes)
+ * 1d = 8h = 480m (标准工时制)
+ */
+export function parseDurationToMinutes(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase().replace(/\s+/g, "");
+  if (!s) return null;
+
+  // 纯数字默认按分钟
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+
+  // 天 (d / 天)
+  const dMatch = s.match(/^([0-9.]+)(d|天)$/);
+  if (dMatch) return Math.round(parseFloat(dMatch[1]) * 8 * 60);
+
+  // 小时 (h / 小时 / hr / hrs)
+  const hMatch = s.match(/^([0-9.]+)(h|小时|hr|hrs)$/);
+  if (hMatch) return Math.round(parseFloat(hMatch[1]) * 60);
+
+  // 分钟 (m / 分钟 / min / mins)
+  const mMatch = s.match(/^([0-9.]+)(m|分钟|min|mins)$/);
+  if (mMatch) return Math.round(parseFloat(mMatch[1]));
+
+  return null;
+}
+
+/**
+ * 🌟 绝对分钟数标准输出展示
+ */
+export function formatMinutesToBadge(minutes) {
+  if (typeof minutes !== "number" || isNaN(minutes) || minutes <= 0) return null;
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes % 480 === 0) return `${minutes / 480}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  const hrs = (minutes / 60).toFixed(1).replace(/\.0$/, "");
+  return `${hrs}h`;
+}
+
 export function formatDurationText(raw) {
   if (!raw) return null;
   let s = String(raw).trim();
@@ -119,14 +158,21 @@ export async function promptEditDuration(node) {
 
   overlay.querySelector("#btn-dur-save")?.addEventListener("click", () => {
     const rawVal = inputEl?.value?.trim() || "";
-    const cleanVal = formatDurationText(rawVal);
+    const mins = parseDurationToMinutes(rawVal);
+    const cleanVal = mins ? formatMinutesToBadge(mins) : formatDurationText(rawVal);
     const docCtx = getActiveDocumentContext();
 
     docCtx?.executeCommand({
       type: COMMANDS.UPDATE_ATTRS,
       nodeId: node.id,
-      oldAttrs: { duration: node.duration || null },
-      newAttrs: { duration: cleanVal }
+      oldAttrs: { 
+        duration: node.duration || null,
+        durationMinutes: node.durationMinutes || null
+      },
+      newAttrs: { 
+        duration: cleanVal,
+        durationMinutes: mins
+      }
     });
 
     docCtx?.markLayoutDirty(node.id);

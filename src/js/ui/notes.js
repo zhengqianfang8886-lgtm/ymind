@@ -620,6 +620,10 @@ export function initNotesDrawer() {
     const docCtx = getActiveDocumentContext();
     const node = findNode(activeNoteNodeId, (docCtx?.mindData || null));
     if (node) {
+      if (docCtx?.tab && !docCtx.tab.isDirty) {
+        docCtx.tab.isDirty = true;
+        import("../core/tab-manager.js").then(m => m.renderTabBar());
+      }
       const hadNote = Boolean(node.note);
       node.note = textarea.value;
       const hasNote = Boolean(node.note);

@@ -85,12 +85,26 @@ export function toggleTaskDone(node) {
   const nextDone = !node.done;
     const subCommands = [];
 
-  // 1. 更新当前节点状态与划线
+  // 1. 获取当前固化日期 (YYYY-MM-DD)，达成时锁定
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const nextCompletedAt = nextDone ? (node.completedAt || todayStr) : null;
+
+  // 2. 更新当前节点状态、划线与完成时间戳
   subCommands.push({
     type: COMMANDS.UPDATE_ATTRS,
     nodeId: node.id,
-    oldAttrs: { done: Boolean(node.done), textDecoration: node.textDecoration || "none" },
-    newAttrs: { done: nextDone, textDecoration: nextDone ? "line-through" : "none" }
+    oldAttrs: { 
+      done: Boolean(node.done), 
+      textDecoration: node.textDecoration || "none",
+      completedAt: node.completedAt || null
+    },
+    newAttrs: { 
+      done: nextDone, 
+      textDecoration: nextDone ? "line-through" : "none",
+      completedAt: nextCompletedAt
+    }
   });
 
   // 2. 向上聚合父节点进度 (Roll-up)

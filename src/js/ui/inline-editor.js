@@ -119,6 +119,15 @@ export function startNodeEdit(node, stateRef, onRender, isNewNode = false, custo
 
   const updateEditorGeometry = () => {
     if (!state.editingNodeId || state.editingNodeId !== node.id) return;
+
+    // 🌟 实时脏标记感知：输入内容发生变动时立即点亮 Tab 绿点与顶栏保存按钮
+    if (inlineEditor.value !== originalText && ctx && ctx.tab) {
+      if (!ctx.tab.isDirty) {
+        ctx.tab.isDirty = true;
+        import("../core/tab-manager.js").then(m => m.renderTabBar());
+      }
+    }
+
     const currentScale = camera.transform.scale;
     const maxScreenW = Math.ceil(maxAllowedWorldW * currentScale);
 

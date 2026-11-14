@@ -6,6 +6,20 @@ import { bus, EVENTS } from "../core/event-bus.js";
 /**
  * 智能解析静态短日期或自然语言短语（今天、明天、后天、下周五、09-25 等）
  */
+/**
+ * 🌟 将自然语言短语（今天、明天、下周五）转化为绝对固定日期（YYYY-MM-DD），根除跨日漂移
+ */
+export function resolveToAbsoluteDate(inputStr) {
+  if (!inputStr) return null;
+  const s = String(inputStr).trim();
+  const parsed = parseDueDate(s);
+  if (!parsed || !parsed.date) return s;
+  const y = parsed.date.getFullYear();
+  const m = String(parsed.date.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function parseDueDate(dueDateStr) {
   if (!dueDateStr) return null;
   const s = String(dueDateStr).trim();
@@ -78,14 +92,23 @@ export function parseDueDate(dueDateStr) {
 /**
  * 🌟 核心状态与色彩映射计算器
  */
-export function getDueDateStatus(dueDateStr, isDone = false, isDark = false) {
+export function getDueDateStatus(dueDateStr, isDone = false, isDark = false, completedAt = null) {
   const parsed = parseDueDate(dueDateStr);
   if (!parsed) return null;
 
-  // 1. 待办已打钩完成：自动变灰淡化
+  // 1. 待办已打钩完成：优先使用绝对完成时间，彻底锁定不漂移
   if (isDone) {
+    let displayTime = completedAt || (parsed ? parsed.display : dueDateStr);
+    if (completedAt) {
+      const parts = String(completedAt).split("-");
+      if (parts.length >= 3) {
+        displayTime = `${parts[1]}-${parts[2]}`;
+      } else {
+        displayTime = completedAt;
+      }
+    }
     return {
-      label: `✓ ${parsed.display}`,
+      label: `✓ ${displayTime}`,
       color: isDark ? "#64748b" : "#94a3b8",
       bg: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)",
       border: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)",
@@ -169,7 +192,7 @@ export async function promptEditDueDate(node) {
   if (newDue === null || newDue === undefined) return;
 
   const docCtx = getActiveDocumentContext();
-  const cleanVal = newDue.trim() || null;
+  const cleanVal = newDue.trim() ? resolveToAbsoluteDate(newDue.trim()) : null;
 
   docCtx?.executeCommand({
     type: COMMANDS.UPDATE_ATTRS,

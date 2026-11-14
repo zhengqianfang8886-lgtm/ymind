@@ -1,6 +1,6 @@
 import { toggleNodeTodo, toggleTaskDone } from "./todo.js";
-import { promptEditDueDate } from "./due-date.js";
-import { promptEditDuration } from "./task-duration.js";
+import { promptEditDueDate, resolveToAbsoluteDate } from "./due-date.js";
+import { promptEditDuration, parseDurationToMinutes, formatMinutesToBadge } from "./task-duration.js";
 import { promptEditNodeLink, navigateDeepLink, copyNodeDeepLink } from "./deep-link.js";
 import { copySelectedNodes, cutSelectedNodes, deleteSelectedNodes } from "../interaction/node-actions.js";
 import { openSnapshotModal } from "./snapshot.js";
@@ -395,7 +395,7 @@ export function bindSidebarNodeTaskEvents() {
     if (pill._bound) return;
     pill.onclick = (e) => {
       e.stopPropagation();
-      const val = pill.dataset.due;
+      const val = resolveToAbsoluteDate(pill.dataset.due);
       const ctx = getActiveDocumentContext();
       const primary = getPrimarySelectedNode() || ctx?.mindData;
       if (primary && ctx) {
@@ -461,14 +461,16 @@ export function bindSidebarNodeTaskEvents() {
     pill.onclick = (e) => {
       e.stopPropagation();
       const val = pill.dataset.dur;
+      const mins = parseDurationToMinutes(val);
+      const cleanVal = mins ? formatMinutesToBadge(mins) : val;
       const ctx = getActiveDocumentContext();
       const primary = getPrimarySelectedNode() || ctx?.mindData;
       if (primary && ctx) {
         ctx.executeCommand({
           type: COMMANDS.UPDATE_ATTRS,
           nodeId: primary.id,
-          oldAttrs: { duration: primary.duration || null },
-          newAttrs: { duration: val }
+          oldAttrs: { duration: primary.duration || null, durationMinutes: primary.durationMinutes || null },
+          newAttrs: { duration: cleanVal, durationMinutes: mins }
         });
         ctx.markLayoutDirty(primary.id);
         bus.emit(EVENTS.RENDER_APP);

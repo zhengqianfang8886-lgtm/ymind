@@ -116,6 +116,20 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
       return;
     }
 
+    // 🌟 核心特赦：无论处于何种输入框或编辑态，按下 Cmd/Ctrl + S 立即冲刷输入并触发保存
+    if (cmd && !isAlt && !e.shiftKey && (code === "KeyS" || key === "s")) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const activeEl = document.activeElement;
+        if (activeEl && typeof activeEl.blur === "function") {
+          activeEl.blur();
+        }
+      } catch {}
+      performSave();
+      return;
+    }
+
     // 🌟 1. 标准规范的 Escape 层级处理机制（严禁在画布上误退首页）
     if (e.key === "Escape") {
       const attrMenu = document.getElementById("menu-node-attributes");
@@ -410,6 +424,10 @@ export function bindGlobalShortcuts(renderApp, performSave, triggerOpenFile) {
         return;
       }
       if (["1", "2", "3", "4", "0"].includes(e.key)) {
+        const homeView = document.getElementById("home-view");
+        if (homeView && !homeView.classList.contains("hidden")) {
+          return; // 处于首页背景时阻断修改节点属性
+        }
         const primary = ctx?.primarySelectedNode;
         if (primary && ctx?.selectedIds && ctx.selectedIds.size > 0) {
           e.preventDefault();

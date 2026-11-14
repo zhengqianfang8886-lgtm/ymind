@@ -196,6 +196,9 @@ export function deleteSelectedNodes(customCtxOrRender = null, maybeCtx = null) {
   const affectedParents = new Map();
 
   itemsToDelete.forEach(({ id, parent, idx, node }) => {
+    if (ctx.tab?.spatialIndex && typeof ctx.tab.spatialIndex.removeSubtree === "function") {
+      ctx.tab.spatialIndex.removeSubtree(node);
+    }
     subCommands.push({
       type: COMMANDS.REMOVE_NODE,
       nodeId: id,

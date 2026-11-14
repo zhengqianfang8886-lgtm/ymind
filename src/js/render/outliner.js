@@ -309,7 +309,7 @@ function renderVirtualSliceRows(listContainer, visibleItems, ctx) {
       badges.appendChild(p);
     }
     if (node.dueDate) {
-      const dueInfo = getDueDateStatus(node.dueDate, Boolean(node.done), false);
+      const dueInfo = getDueDateStatus(node.dueDate, Boolean(node.done), false, node.completedAt);
       if (dueInfo) {
         const dueSpan = document.createElement("span");
         dueSpan.className = "apple-tag";

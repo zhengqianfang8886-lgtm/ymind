@@ -97,9 +97,13 @@ export function compactMindNode(node) {
 
   const dueDate = data.dueDate || node.dueDate;
   if (dueDate) out.dueDate = dueDate;
+  const completedAt = data.completedAt || node.completedAt;
+  if (completedAt) out.completedAt = completedAt;
 
   const duration = data.duration || node.duration;
   if (duration) out.duration = duration;
+  const durationMinutes = data.durationMinutes !== undefined ? data.durationMinutes : node.durationMinutes;
+  if (typeof durationMinutes === "number") out.durationMinutes = durationMinutes;
 
   if (data.collapsed || node.collapsed || data.expand === false) out.collapsed = true;
 
@@ -277,7 +281,9 @@ export function normalizeMindNode(n) {
     todo: Boolean(data.todo || n.todo || data.done || n.done),
     done: Boolean(data.done || n.done),
     dueDate: data.dueDate || n.dueDate || null,
+    completedAt: data.completedAt || n.completedAt || null,
     duration: data.duration || n.duration || null,
+    durationMinutes: (typeof data.durationMinutes === "number") ? data.durationMinutes : ((typeof n.durationMinutes === "number") ? n.durationMinutes : null),
     collapsed: Boolean(data.collapsed || n.collapsed || data.expand === false),
     fontSize: (() => {
       const raw = data.fontSize || n.fontSize;

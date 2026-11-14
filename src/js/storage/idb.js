@@ -210,16 +210,13 @@ export async function idbDeleteSnapshotsByTarget(tabTitle, filePath = null) {
 
 export async function idbPruneOrphanSnapshots(activeTabs = []) {
   try {
+    // 保护机制：关闭标签页退回首页绝不清空全库历史快照
+    if (!activeTabs || activeTabs.length === 0) {
+      return true;
+    }
     const db = await openDB();
     const tx = db.transaction(STORE_SNAPSHOTS, "readwrite");
     const store = tx.objectStore(STORE_SNAPSHOTS);
-
-    if (!activeTabs || activeTabs.length === 0) {
-      store.clear();
-      return new Promise((res) => {
-        tx.oncomplete = () => res(true);
-      });
-    }
 
     const allowedTitles = new Set(activeTabs.map(t => String(t.title || "").replace(/^[●\s]+/, "").trim()).filter(Boolean));
     const allowedPaths = new Set(activeTabs.map(t => String(t.filePath || "").trim()).filter(Boolean));
